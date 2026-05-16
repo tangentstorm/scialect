@@ -3,3 +3,4 @@ dist/
 .profile/
 *.log
 .DS_Store
+config.json

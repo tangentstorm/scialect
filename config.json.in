@@ -1,0 +1,5 @@
+{
+  "gitRepo": "JacobianChallenge",
+  "claudeEnv": "lean",
+  "sorriesDb": "~/ver/jc0/sorries.jsonl"
+}
