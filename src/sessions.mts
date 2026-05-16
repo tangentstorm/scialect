@@ -1,20 +1,23 @@
-import type { Page, Locator } from 'playwright';
+import type { Page } from 'playwright';
 
 /**
  * Status the cloud UI advertises for a session in the sidebar.
- * The DOM doesn't expose a stable enum, so we infer from icons + text.
+ * Primary signal is the `<span role="status" aria-label="...">` indicator;
+ * PR status (`#NNN · Open|Merged|Closed`) is a secondary signal.
  *
- * - "running":   worker is actively producing tokens
- * - "awaiting":  worker stopped and is waiting for the user (a reply, a permission)
- * - "ci":        a PR is open and CI is mid-flight (yellow indicator)
- * - "ci-pass":   CI is green
- * - "ci-fail":   CI is red
- * - "idle":      session exists but has no active turn
+ * - "running":   worker is actively producing tokens ("Running")
+ * - "awaiting":  worker stopped and needs user input ("Awaiting input")
+ * - "ready":     worker finished and has unread output — blue dot ("Ready")
+ * - "ci":        PR open, CI mid-flight
+ * - "ci-pass":   CI green
+ * - "ci-fail":   CI red
+ * - "idle":      no active turn (e.g. merged / closed PRs)
  * - "unknown":   we couldn't classify it — caller should inspect rawSignals
  */
 export type SessionStatus =
   | 'running'
   | 'awaiting'
+  | 'ready'
   | 'ci'
   | 'ci-pass'
   | 'ci-fail'
@@ -32,56 +35,79 @@ export interface SessionSummary {
   rawSignals: string[];
 }
 
-const SIDEBAR_ITEM = '[data-testid="session-list-item"], aside [role="button"], nav [role="button"]';
 const CHAT_INPUT = 'div[contenteditable="true"]';
 const MESSAGE = '.font-claude-message';
 
+// Each session row sits inside `<div data-row-key="code:session_...">`; the
+// main click target is the inner `button[data-row-main-button]`. The chrome
+// rows ("New session", "Routines", etc.) use the same button selector but
+// don't have a `code:session_` parent.
+const SESSION_ROW = '[data-row-key^="code:session_"]';
+
 /**
- * Enumerate every session visible in the left sidebar. Best-effort: the cloud
- * UI doesn't ship stable test ids, so we fall back to role-based selectors and
- * classify status from text + aria-label hints.
+ * Enumerate every session visible in the left sidebar. Does everything in
+ * a single page-context evaluate to avoid per-row playwright round-trips —
+ * for 100+ rows the round-trip cost is dominant.
  */
 export async function listSessions(page: Page): Promise<SessionSummary[]> {
   await page.waitForSelector(CHAT_INPUT, { timeout: 30_000 });
 
-  const items = page.locator(SIDEBAR_ITEM);
-  const count = await items.count();
-  const out: SessionSummary[] = [];
+  const raw = await page.evaluate((rowSel: string) => {
+    const rows = Array.from(document.querySelectorAll(rowSel)) as HTMLElement[];
+    return rows.map((row) => {
+      const text = (row.innerText ?? '').trim();
+      const name = text.split('\n')[0]?.trim() ?? text;
+      const kindEl = row.querySelector('[data-kind]');
+      const kind = kindEl?.getAttribute('data-kind') ?? null;
+      const indicator = row.querySelector('[role="status"], [role="img"]');
+      const indicatorLabel = indicator?.getAttribute('aria-label') ?? null;
+      const ariaLabels = Array.from(row.querySelectorAll('[aria-label]'))
+        .map((el) => el.getAttribute('aria-label') ?? '')
+        .filter(Boolean);
+      return { text, name, kind, indicatorLabel, ariaLabels };
+    });
+  }, SESSION_ROW);
 
-  for (let i = 0; i < count; i++) {
-    const item = items.nth(i);
-    const summary = await summarizeItem(item);
-    if (summary) out.push(summary);
-  }
-  return out;
+  return raw
+    .filter((r) => r.text.length > 0)
+    .map((r) => {
+      const signals = [
+        r.text,
+        ...(r.kind ? [`kind=${r.kind}`] : []),
+        ...(r.indicatorLabel ? [`indicator=${r.indicatorLabel}`] : []),
+        ...r.ariaLabels,
+      ];
+      return {
+        name: r.name,
+        status: classifyStatus(r.kind, r.indicatorLabel, signals),
+        pinned: false,
+        rawSignals: signals,
+      };
+    });
 }
 
-async function summarizeItem(item: Locator): Promise<SessionSummary | null> {
-  const text = (await item.innerText().catch(() => '')).trim();
-  if (!text) return null;
-  const aria = (await item.getAttribute('aria-label').catch(() => '')) ?? '';
-  const title = (await item.getAttribute('title').catch(() => '')) ?? '';
+function classifyStatus(
+  kind: string | null,
+  indicatorLabel: string | null,
+  signals: string[],
+): SessionStatus {
+  // Trust the explicit indicator kind.
+  if (kind === 'ready') return 'ready';
+  if (kind === 'awaiting') return 'awaiting';
+  if (kind === 'running') return 'running';
+  // Idle rows have role="img" aria-label="Idle" with no data-kind child.
+  if (indicatorLabel === 'Idle') return 'idle';
+  if (indicatorLabel === 'Running') return 'running';
+  if (indicatorLabel === 'Awaiting input') return 'awaiting';
+  if (indicatorLabel === 'Ready') return 'ready';
 
-  // Sidebar entries usually render as `<name>\n<status-line>` — first line is the name.
-  const name = text.split('\n')[0]?.trim() ?? text;
-  const signals = [text, aria, title].filter(Boolean);
-
-  return {
-    name,
-    status: classifyStatus(signals),
-    pinned: /pinned/i.test(aria) || /pinned/i.test(title),
-    rawSignals: signals,
-  };
-}
-
-function classifyStatus(signals: string[]): SessionStatus {
+  // Fall back to PR / text heuristics for anything else.
   const blob = signals.join(' | ').toLowerCase();
-  if (/(generating|running|working|in progress|thinking)/.test(blob)) return 'running';
-  if (/(awaiting|needs (input|reply|response)|paused|input required)/.test(blob)) return 'awaiting';
-  if (/(ci\s*pass|checks? pass|green)/.test(blob)) return 'ci-pass';
-  if (/(ci\s*fail|checks? fail|red)/.test(blob)) return 'ci-fail';
+  if (/·\s*merged|·\s*closed/.test(blob)) return 'idle';
+  if (/·\s*open/.test(blob)) return 'ci';
+  if (/(ci\s*pass|checks? pass)/.test(blob)) return 'ci-pass';
+  if (/(ci\s*fail|checks? fail)/.test(blob)) return 'ci-fail';
   if (/(ci|checks? running|pending)/.test(blob)) return 'ci';
-  if (/(idle|completed|done|merged)/.test(blob)) return 'idle';
   return 'unknown';
 }
 
