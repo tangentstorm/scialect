@@ -82,10 +82,25 @@ function setPrompt(): void {
   rl?.prompt(true);
 }
 
+async function autoUse(name: string): Promise<void> {
+  const r = await call<ServerReply>({ kind: 'use', chatId: name });
+  if (r.kind === 'use') {
+    activeLabel = r.active.label;
+    console.log(`-> ${r.active.label}`);
+  } else {
+    console.log(`[err] ${stringify(r)}`);
+  }
+}
+
 function startRepl(): void {
   rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log('commands: /list  /use <name>  /status [name]  /latest  /help  /quit');
-  setPrompt();
+  const initialUse = process.env['SCIALECT_USE'];
+  if (initialUse) {
+    autoUse(initialUse).finally(() => setPrompt());
+  } else {
+    setPrompt();
+  }
 
   rl.on('line', async (raw) => {
     const line = raw.trim();

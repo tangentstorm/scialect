@@ -21,6 +21,8 @@ export interface ChatRef {
   transport: Transport;
   /** Last known status string; format depends on transport. */
   status?: string;
+  /** URL slug for cloud chats (the path segment after /code/); undefined for tmux. */
+  slug?: string;
 }
 
 // ---------------- client → server ----------------

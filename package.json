@@ -19,9 +19,12 @@
     "dev": "vite",
     "server": "tsx src/server.mts",
     "client": "tsx src/client.mts",
+    "browse-sorries": "tsx src/browse-sorries.mts",
+    "sync-assignees": "tsx src/sync-assignees.mts",
     "install:browser": "playwright install chromium"
   },
   "dependencies": {
+    "kvm": "file:../platform/kvm",
     "playwright": "^1.49.0",
     "ws": "^8.18.0"
   },

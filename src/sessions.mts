@@ -27,6 +27,8 @@ export type SessionStatus =
 export interface SessionSummary {
   /** Visible name in the sidebar, e.g. "1469. Prove skeletal homology quotient identity". */
   name: string;
+  /** URL slug (the last path segment of claude.ai/code/<slug>), e.g. "session_abc123". */
+  slug: string;
   /** Best-effort status classification (see SessionStatus). */
   status: SessionStatus;
   /** Whether the session is pinned in the sidebar. */
@@ -57,6 +59,12 @@ export async function listSessions(page: Page): Promise<SessionSummary[]> {
     return rows.map((row) => {
       const text = (row.innerText ?? '').trim();
       const name = text.split('\n')[0]?.trim() ?? text;
+      const rowKey = row.getAttribute('data-row-key') ?? '';
+      const fromKey = rowKey.startsWith('code:') ? rowKey.slice('code:'.length) : '';
+      const anchor = row.querySelector('a[href*="/code/"]') as HTMLAnchorElement | null;
+      const href = anchor?.getAttribute('href') ?? '';
+      const fromHref = href ? (href.split('/code/')[1] ?? '').split(/[?#]/)[0] : '';
+      const slug = fromHref || fromKey;
       const kindEl = row.querySelector('[data-kind]');
       const kind = kindEl?.getAttribute('data-kind') ?? null;
       const indicator = row.querySelector('[role="status"], [role="img"]');
@@ -64,7 +72,7 @@ export async function listSessions(page: Page): Promise<SessionSummary[]> {
       const ariaLabels = Array.from(row.querySelectorAll('[aria-label]'))
         .map((el) => el.getAttribute('aria-label') ?? '')
         .filter(Boolean);
-      return { text, name, kind, indicatorLabel, ariaLabels };
+      return { text, name, slug, kind, indicatorLabel, ariaLabels };
     });
   }, SESSION_ROW);
 
@@ -79,6 +87,7 @@ export async function listSessions(page: Page): Promise<SessionSummary[]> {
       ];
       return {
         name: r.name,
+        slug: r.slug,
         status: classifyStatus(r.kind, r.indicatorLabel, signals),
         pinned: false,
         rawSignals: signals,
@@ -126,10 +135,27 @@ export async function sendMessage(page: Page, message: string): Promise<void> {
 
 /** Return the most recent assistant message text, or null if none. */
 export async function getLatestResponse(page: Page): Promise<string | null> {
-  const responses = page.locator(MESSAGE);
-  const count = await responses.count();
-  if (count === 0) return null;
-  return responses.nth(count - 1).innerText();
+  return await page.evaluate(() => {
+    const transcript = document.querySelector('[data-testid="epitaxy-virtual-transcript"]');
+    if (transcript) {
+      const bodies = transcript.querySelectorAll('.epitaxy-markdown');
+      if (bodies.length > 0) {
+        const last = bodies[bodies.length - 1] as HTMLElement;
+        const txt = (last.innerText ?? last.textContent ?? '').trim();
+        if (txt) return txt;
+      }
+    }
+    // Legacy/alternate UIs.
+    for (const sel of ['.font-claude-message', '.font-claude-response']) {
+      const els = document.querySelectorAll(sel);
+      if (els.length > 0) {
+        const last = els[els.length - 1] as HTMLElement;
+        const txt = (last.innerText ?? last.textContent ?? '').trim();
+        if (txt) return txt;
+      }
+    }
+    return null;
+  });
 }
 
 /**

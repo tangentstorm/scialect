@@ -46,6 +46,7 @@ export async function dispatch(
         label: s.name,
         transport: 'cloud',
         status: s.status,
+        slug: s.slug,
       }));
       return { id: req.id, kind: 'list', chats, active: c.activeChat };
     }
@@ -60,6 +61,7 @@ export async function dispatch(
         label: match.name,
         transport: 'cloud',
         status: match.status,
+        slug: match.slug,
       };
       return { id: req.id, kind: 'use', active: ref };
     }
