@@ -1,0 +1,33 @@
+{
+  "name": "scialect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript API for driving Claude Code cloud sessions in a persistent Playwright browser.",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "scialect": "dist/cli.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo": "tsx src/cli.mts",
+    "demo:list": "tsx src/cli.mts list",
+    "demo:open": "tsx src/cli.mts open",
+    "demo:status": "tsx src/cli.mts status",
+    "server": "tsx src/server.mts",
+    "client": "tsx src/client.mts",
+    "install:browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
