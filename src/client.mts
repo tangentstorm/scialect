@@ -8,7 +8,7 @@ import {
   type ServerReply,
 } from './protocol.mts';
 
-const url = process.env['SCIALECT_URL'] ?? `ws://127.0.0.1:${DEFAULT_PORT}`;
+const url = process.env['SCIALECT_URL'] ?? `ws://127.0.0.1:${DEFAULT_PORT}/ws`;
 
 const ws = new WebSocket(url);
 const pending = new Map<string, (r: ServerReply) => void>();

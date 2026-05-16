@@ -58,12 +58,12 @@ export async function launchBrowser(opts: LaunchOptions = {}): Promise<BrowserHa
  */
 export async function gotoClaudeCode(page: Page, timeoutMs = 30_000): Promise<void> {
   await page.goto(CLAUDE_CODE_URL, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-  // The chat input is the most reliable "app is ready" signal.
-  // If we land on /login the input never appears.
-  await page.waitForSelector('div[contenteditable="true"], a[href*="login"]', { timeout: timeoutMs });
-  if (page.url().includes('/login')) {
+  // Settle redirects (claude.ai/code → /login when logged out).
+  await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {});
+  if (page.url().includes('/login') || (await page.locator('a[href="/login"]').count()) > 0) {
     throw new Error(
-      `Not logged in. Re-run with headed=true and complete the login at ${CLAUDE_CODE_URL}, then retry.`,
+      `Not logged in. Run \`npm run demo -- wait\`, complete the login at ${CLAUDE_CODE_URL}, then Ctrl-C and retry.`,
     );
   }
+  await page.waitForSelector('div[contenteditable="true"]', { timeout: timeoutMs });
 }

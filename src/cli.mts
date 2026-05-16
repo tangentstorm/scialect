@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { launchBrowser, gotoClaudeCode } from './browser.mts';
+import { launchBrowser, gotoClaudeCode, CLAUDE_CODE_URL } from './browser.mts';
 import {
   listSessions,
   openSession,
@@ -12,7 +12,11 @@ const [, , cmd = 'list', ...rest] = process.argv;
 async function main() {
   const handle = await launchBrowser({ headed: true });
   try {
-    await gotoClaudeCode(handle.page);
+    if (cmd === 'wait') {
+      await handle.page.goto(CLAUDE_CODE_URL, { waitUntil: 'domcontentloaded' });
+    } else {
+      await gotoClaudeCode(handle.page);
+    }
 
     switch (cmd) {
       case 'list': {
