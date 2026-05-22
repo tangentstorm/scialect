@@ -45,7 +45,8 @@ type Config = {
   sorriesDb: string;
 };
 
-type Mode = 'frontier' | 'leaves';
+type Mode = 'frontier' | 'leaves' | 'aristotle' | 'claude';
+const MODES: Mode[] = ['frontier', 'leaves', 'aristotle', 'claude'];
 
 function expandHome(p: string): string {
   if (p.startsWith('~/')) return resolve(homedir(), p.slice(2));
@@ -128,7 +129,23 @@ function depCounts(db: Map<number, Sorry>, node: Sorry): { open: number; total: 
   return { open, total: u.length };
 }
 
+function assignedTo(node: Sorry | undefined, kind: 'aristotle' | 'claude'): boolean {
+  const a = node?.a;
+  if (!a) return false;
+  return a.startsWith(`${kind}:`);
+}
+
 function computeRoots(db: Map<number, Sorry>, mode: Mode, showDone: boolean): number[] {
+  if (mode === 'aristotle' || mode === 'claude') {
+    const matches: number[] = [];
+    for (const [id, n] of db) {
+      if (!assignedTo(n, mode)) continue;
+      if (!showDone && isDone(n)) continue;
+      matches.push(id);
+    }
+    return matches.sort((a, b) => a - b);
+  }
+
   const reachable: number[] = [];
   for (const [id, n] of db) if (n.r === 1) reachable.push(id);
 
@@ -272,9 +289,11 @@ const HELP_LINES = [
   '',
   'Colors: green=done  yellow=reachable  dim=unreachable',
   '',
-  'Modes:',
-  '  frontier = open nodes whose downstream are all done',
-  '  leaves   = open nodes with no open upstream deps',
+  'Modes (cycle with m):',
+  '  frontier  = open nodes whose downstream are all done',
+  '  leaves    = open nodes with no open upstream deps',
+  '  aristotle = open nodes with a=aristotle:<id>',
+  '  claude    = open nodes with a=claude:<id>',
   '',
   'Keys:',
   '  up / p          previous',
@@ -407,9 +426,11 @@ function runBrowser(configPath: string): void {
       case '\n':
       case ' ':
         tree.toggle(); draw(); break;
-      case 'm':
-        state.mode = state.mode === 'frontier' ? 'leaves' : 'frontier';
+      case 'm': {
+        const i = MODES.indexOf(state.mode);
+        state.mode = MODES[(i + 1) % MODES.length] ?? 'frontier';
         rebuild(); draw(); break;
+      }
       case 't':
         state.showDone = !state.showDone;
         rebuild(); draw(); break;
