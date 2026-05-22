@@ -20,6 +20,7 @@
     "server": "tsx src/server.mts",
     "client": "tsx src/client.mts",
     "browse-sorries": "tsx src/browse-sorries.mts",
+    "local-status": "tsx src/local-status.mts",
     "sync-assignees": "tsx src/sync-assignees.mts",
     "mcp": "tsx src/mcp-server.mts",
     "install:browser": "playwright install chromium"
