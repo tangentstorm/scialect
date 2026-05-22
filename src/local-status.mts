@@ -128,6 +128,21 @@ function formatState(goal: Date | null, result: Date | null): string {
   return 'BUSY';
 }
 
+function getGitStatusSummary(cwd: string): string {
+  try {
+    const res = spawnSync(
+      'sh',
+      ['-c', `git status --porcelain | cut -c1-2 | sed 's/ //g' | sort | uniq -c | awk '{printf " %s:%s", $2, $1}'`],
+      { cwd, encoding: 'utf8' }
+    );
+    if (res.status !== 0 || !res.stdout) return '';
+    const out = res.stdout.trim();
+    return out ? ` (${out})` : '';
+  } catch {
+    return '';
+  }
+}
+
 async function main() {
   const workersPath = resolve(process.cwd(), 'workers.jsonl');
   const lines = readFileSync(workersPath, 'utf8')
@@ -149,6 +164,9 @@ async function main() {
       branch = res.stdout.trim() || '—';
     } catch {}
 
+    const statusSuffix = getGitStatusSummary(configuredDir);
+    const branchDisplay = branch + statusSuffix;
+
     const goalPath = resolve(configuredDir, 'goal.md');
     const resultPath = resolve(configuredDir, 'result.md');
     const goalM = getMtime(goalPath);
@@ -161,7 +179,7 @@ async function main() {
       agentDisplay += '!!';
     }
 
-    rows.push([w.id, dirDisplay, agentDisplay, state, branch]);
+    rows.push([w.id, dirDisplay, agentDisplay, state, branchDisplay]);
   }
 
   // Print table
