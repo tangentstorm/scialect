@@ -1,0 +1,108 @@
+#+title: scialect proof agent
+
+* overview
+
+This is a tool for organizing parallel work on large proofs.
+
+* current (manual) algorithm
+
+- I run 5 agents under tmux (jc0 .. jc4).
+  "jc" stands for "jacobian challenge", the formalization I'm working on.
+- agent 0 is the "manager". the others are workers
+- each worker has its own working copy of the repo under ~/ver (ex: ~/ver/jc2)
+- each worker has its own branch at any given moment
+- managers and workers communicate via two files in each worker's directory:
+  - goal.md is the current goal for the worker
+  - result.md (if present) indicates that the worker has stopped, either because
+    the work is finished or because it needs help
+- the manager creates the goal file according to a detailed prompting guide.
+  the goal file includes instructions like:
+  - rebase on origin/main and build the solution
+  - do your work on some existing branch, or create a new one
+  - don't take shortcuts
+  - prove `theorem someTheoremName` which is usually currently `by sorry`
+  - follow this particular proof strategy...
+  - if you can't prove the statement, explain what's blocking you
+  - commit your changes (with a co-authored-by line)
+  - when you are done, summarize what you did in result.md
+- generally speaking, the agent gets a new session for each new goal.
+  currently, i just manually restart it, and add a prompt like:
+  ```
+  /goal follow the instructions in goal.md
+  ```
+  (may change slightly based on which agent is doing the work)
+- whenever a worker stops done, I tell the manager about it, and it reviews the result.md file.
+  then, it decides whether the work is ready to merge into the project, or whether the prompt
+  needs adjustment.
+- the (intended) benefit of this is that the manager's context window stays populated with
+  the big picture view of the project.
+
+
+* TODO object model
+
+#+begin_src python
+
+  from enum import Enum
+
+
+  class WorkState(Enum):
+      BUSY = 1         # busy working
+      IDLE = 2         # no assignment
+      DONE = 4         # ready for review
+      HELP = 8         # stuck/needs help/unknown
+
+  class Project:
+
+      def isDone(self):  # TODO
+          return False
+
+  class Worker:
+
+      def __init__(self):
+          self.state : WorkState = IDLE
+
+  class Manager:
+
+      def __init__(self, p:Project):
+          self.project = p
+
+      def assignGoal(self, w:Worker):
+          pass
+
+      def reviewWork(self, w:Worker):
+          pass
+
+      def respondTo(self, w:Worker):
+          pass
+
+  def main():
+      p = Project()
+      m = Mangager(p)
+      swarm: List[Worker] = Swarm()
+
+      while not p.isDone():
+          mgr.reviewGoals()
+          for w in swarm:
+              match w.state:
+                  case WorkState.BUSY: pass
+                  case WorkState.IDLE: mgr.assignGoal(w)
+                  case WorkState.DONE: mgr.reviewWork(w)
+                  case WorkState.HELP: mgr.respondTo(w)
+
+#+end_src
+
+
+* worker backends
+
+** local workers (tmux)
+*** aristotle
+*** claude
+*** codex
+*** opencode
+*** TODO grok build
+
+** cloud workers
+*** aristotle
+*** claude
+*** chatgpt
+*** custom remote workers
