@@ -21,9 +21,11 @@
     "client": "tsx src/client.mts",
     "browse-sorries": "tsx src/browse-sorries.mts",
     "sync-assignees": "tsx src/sync-assignees.mts",
+    "mcp": "tsx src/mcp-server.mts",
     "install:browser": "playwright install chromium"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "kvm": "file:../platform/kvm",
     "playwright": "^1.49.0",
     "ws": "^8.18.0"
