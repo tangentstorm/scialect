@@ -7,10 +7,6 @@ import * as tmux from './tmux.mts';
 import { ClaudeTui } from './agents/claude-cli.mts';
 import { CodexTui } from './agents/codex-cli.mts';
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
-
 interface WorkerConfig {
   id: string;
   dir: string;
