@@ -130,24 +130,35 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
   console.log(`${w.id}: files prepared (ASSIGNED, goal.md present, result.md cleared)`);
 
   // Now talk to the live agent in the pane
-  const agent = (w.expected_agent || 'claude').toLowerCase();
+  const detected = await detectAgent(w.session, w.window);
+  const agent = (detected || w.expected_agent || 'claude').toLowerCase();
 
-  if (agent === 'claude') {
-    const claude = new ClaudeTui(target);
+  let tui: any = null;
 
-    console.log(`${w.id}: waiting for empty Claude prompt (up to 5s)...`);
-    if (!await claude.ensurePromptIsEmpty()) {
+  if (agent.includes('codex')) {
+    tui = new CodexTui(target);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(target);
+  }
+
+  if (tui) {
+    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
+    if (!await tui.ensurePromptIsEmpty()) {
       console.error(`${w.id}: never reached empty prompt`);
       process.exit(1);
     }
 
     console.log(`${w.id}: clean prompt detected. Sending handoff...`);
 
-    await tmux.sendKeys(target, '/new', true);
-    await sleep(1000);
-    await tmux.sendKeys(target, '/goal follow the instructions in goal.md', true);
+    await tmux.sendKeys(target, '/new', false);   // type the command first
+    await sleep(500);                             // let it register before Enter
+    await tmux.sendKeys(target, 'Enter', false);  // press Enter cleanly
+    await sleep(10000);                           // give /new time to fully initialize the fresh prompt
+    await tmux.sendKeys(target, '/goal follow the instructions in goal.md', false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
 
-    console.log(`${w.id}: handoff sent to Claude.`);
+    console.log(`${w.id}: handoff sent to ${agent}.`);
   } else {
     console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
   }

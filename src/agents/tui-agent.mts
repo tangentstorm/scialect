@@ -37,10 +37,14 @@ export abstract class TuiAgent {
 
     // Send space as a probe
     await tmux.sendKeys(this.target, ' ', false);
-    await _sleep(500);
+    await _sleep(800);
 
     // Check if the space cleared the line (i.e. previous content was filler)
-    const nowBlank = await this.isPromptBlank();
+    let nowBlank = await this.isPromptBlank();
+    if (!nowBlank) {
+      await _sleep(300);
+      nowBlank = await this.isPromptBlank();
+    }
 
     // Always undo the space
     await tmux.sendKeys(this.target, 'BSpace', false);

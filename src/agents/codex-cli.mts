@@ -9,42 +9,35 @@ export class CodexTui extends TuiAgent {
   }
 
   async isPromptBlank(): Promise<boolean> {
-    // Capture the visible screen, sized to the actual pane dimensions.
-    const sizeRes = spawnSync('tmux', ['display-message', '-t', this.target, '-p', '#{pane_width} #{pane_height}'], { encoding: 'utf8' });
-    const [w, h] = sizeRes.stdout.trim().split(/\s+/).map(n => parseInt(n, 10));
-    const paneWidth  = Math.max(40, w || 120);
-    const paneHeight = Math.max(10, h || 30);
-
-    const rawRes = spawnSync('tmux', ['capture-pane', '-t', this.target, '-p', '-e'], { encoding: 'utf8' });
+    // Capture the visible screen as plain text — this is now the source of truth
+    const rawRes = spawnSync('tmux', ['capture-pane', '-t', this.target, '-p'], { encoding: 'utf8' });
     const raw = rawRes.stdout ?? '';
-    const buf = new VideoBuffer(paneWidth + 4, paneHeight + 4);
-    escPuts(buf, raw);
 
-    // Find the bottom-most › on the visible screen (highest y)
-    let lastPromptY = -1;
-    let lastPromptX = -1;
+    const lines = raw.split('\n');
 
-    for (let y = 0; y < buf.height; y++) {
-      for (let x = 0; x < buf.width; x++) {
-        if (String.fromCodePoint(buf.charCodes[buf.index(x, y)] || 32) === '›') {
-          if (y > lastPromptY) {
-            lastPromptY = y;
-            lastPromptX = x;
-          }
-        }
+    // Find the last line that contains a › (this should be the live input prompt)
+    let promptLineIndex = -1;
+    let promptLine = '';
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].includes('›')) {
+        promptLineIndex = i;
+        promptLine = lines[i];
+        break;
       }
     }
 
-    if (lastPromptY < 0 || lastPromptX < 0) {
+    if (promptLineIndex === -1) {
       return false;
     }
 
-    // Return true only if there is no non-whitespace text after the prompt symbol.
-    let afterText = '';
-    for (let x = lastPromptX + 1; x < buf.width; x++) {
-      afterText += String.fromCodePoint(buf.charCodes[buf.index(x, lastPromptY)] || 32);
+    // Check if there is any non-whitespace after the first › on this line
+    const firstPromptPos = promptLine.indexOf('›');
+    if (firstPromptPos === -1) {
+      return false;
     }
 
-    return afterText.trim() === '';
+    const after = promptLine.slice(firstPromptPos + 1);
+    return after.trim() === '';
   }
 }
