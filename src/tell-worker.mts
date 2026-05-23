@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import * as tmux from './tmux.mts';
+import { ClaudeTui } from './agents/claude-cli.mts';
+
+interface WorkerConfig {
+  id: string;
+  dir: string;
+  session: string;
+  window: string;
+  expected_agent?: string;
+}
+
+function expandHome(p: string): string {
+  if (p.startsWith('~/')) return resolve(homedir(), p.slice(2));
+  return p;
+}
+
+function loadWorkers(): WorkerConfig[] {
+  const path = resolve(process.cwd(), 'workers.jsonl');
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => JSON.parse(l) as WorkerConfig);
+}
+
+function sleep(ms: number) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function isGitClean(dir: string): boolean {
+  const res = spawnSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' });
+  return res.status === 0 && !res.stdout.trim();
+}
+
+async function doAssigned(w: WorkerConfig, dir: string, target: string) {
+  const configuredDir = expandHome(w.dir);
+
+  if (!isGitClean(configuredDir)) {
+    console.error(`${w.id}: git tree is not clean`);
+    process.exit(1);
+  }
+
+  const goalPath = resolve(configuredDir, 'goal.md');
+  if (!existsSync(goalPath)) {
+    console.error(`${w.id}: goal.md does not exist`);
+    process.exit(1);
+  }
+
+  const goalContent = readFileSync(goalPath, 'utf8');
+
+  // Remove old result
+  const resultPath = resolve(configuredDir, 'result.md');
+  if (existsSync(resultPath)) {
+    unlinkSync(resultPath);
+  }
+
+  // Set swarm status
+  const statusPath = resolve(configuredDir, '.swarm-status');
+  writeFileSync(statusPath, `ASSIGNED: ${goalContent.split('\n')[0].slice(0, 80)}\n`, 'utf8');
+
+  console.log(`${w.id}: files prepared (ASSIGNED, goal.md present, result.md cleared)`);
+
+  // Now talk to the live agent in the pane
+  const agent = (w.expected_agent || 'claude').toLowerCase();
+
+  if (agent === 'claude') {
+    const claude = new ClaudeTui(target);
+
+    console.log(`${w.id}: waiting for clean Claude prompt...`);
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      if (await claude.isAtPrompt()) {
+        ready = true;
+        break;
+      }
+      await sleep(800);
+    }
+
+    if (!ready) {
+      console.error(`${w.id}: never reached clean prompt`);
+      process.exit(1);
+    }
+
+    console.log(`${w.id}: clean prompt detected. Sending handoff...`);
+
+    await tmux.sendKeys(target, '/new', true);
+    await sleep(1000);
+    await tmux.sendKeys(target, '/goal follow the instructions in goal.md', true);
+
+    console.log(`${w.id}: handoff sent to Claude.`);
+  } else {
+    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
+  }
+}
+
+async function main() {
+  const [workerId, action] = process.argv.slice(2);
+  if (!workerId || !action) {
+    console.error('Usage: npm run tell-worker -- <jcN> assigned');
+    process.exit(1);
+  }
+
+  const workers = loadWorkers();
+  const w = workers.find(x => x.id === workerId);
+  if (!w) {
+    console.error(`Unknown worker: ${workerId}`);
+    process.exit(1);
+  }
+
+  const target = `${w.session}:${w.window}.0`;
+
+  if (action === 'assigned') {
+    await doAssigned(w, w.dir, target);
+  } else {
+    console.error(`Unknown action: ${action}`);
+    process.exit(1);
+  }
+}
+
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

@@ -121,3 +121,12 @@ export async function attachSession(sessionName: string, unicode = true): Promis
   cmd.push('attach-session', '-t', sessionName);
   return cmd;
 }
+
+/** Capture recent lines from a pane, optionally with escape codes for styling. */
+export async function capturePane(target: string, lines = 40, withEsc = true): Promise<string> {
+  const args = ['capture-pane', '-t', target, '-p'];
+  if (withEsc) args.push('-e');
+  args.push('-S', `-${lines}`);
+  const res = await runTmux(args);
+  return res.stdout ?? '';
+}
