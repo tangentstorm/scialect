@@ -164,26 +164,49 @@ async function main() {
       branch = res.stdout.trim() || '—';
     } catch {}
 
-    const statusSuffix = getGitStatusSummary(configuredDir);
-    const branchDisplay = branch + statusSuffix;
-
     const goalPath = resolve(configuredDir, 'goal.md');
     const resultPath = resolve(configuredDir, 'result.md');
     const goalM = getMtime(goalPath);
     const resultM = getMtime(resultPath);
-    const state = formatState(goalM, resultM);
+    let state = formatState(goalM, resultM);
 
-    const dirDisplay = shorten(configuredDir) + (liveCwd && liveCwd !== configuredDir ? '!!' : '');
+    const statusSuffix = getGitStatusSummary(configuredDir);
+
+    let statusDisplay = branch + statusSuffix;
+
+    // Prefer .swarm-status if present
+    const swarmStatusPath = resolve(configuredDir, '.swarm-status');
+    try {
+      const content = readFileSync(swarmStatusPath, 'utf8').trim();
+      if (content) {
+        const firstLine = content.split('\n')[0].trim();
+        if (firstLine) {
+          // Extract keyword + remainder
+          const match = firstLine.match(/^([A-Za-z0-9_-]+)[:\s]?(.*)$/);
+          if (match) {
+            const keyword = match[1];
+            const rest = match[2] ? match[2].trim() : '';
+            state = keyword.toUpperCase();
+            statusDisplay = rest ? (rest + statusSuffix) : (keyword + statusSuffix);
+          } else {
+            statusDisplay = firstLine + statusSuffix;
+          }
+        }
+      }
+    } catch {
+      // no .swarm-status → keep computed state + branch
+    }
+
     let agentDisplay = detectedAgent || 'unknown';
     if (w.expected_agent && detectedAgent && detectedAgent !== w.expected_agent) {
       agentDisplay += '!!';
     }
 
-    rows.push([w.id, dirDisplay, agentDisplay, state, branchDisplay]);
+    rows.push([w.id, agentDisplay, state, statusDisplay]);
   }
 
   // Print table
-  const headers = ['id', 'dir', 'agent', 'state', 'branch'];
+  const headers = ['id', 'agent', 'state', 'status'];
   const all = [headers, ...rows];
 
   const widths = headers.map((_, i) =>
