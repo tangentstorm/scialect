@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import * as tmux from './tmux.mts';
 import { ClaudeTui } from './agents/claude-cli.mts';
 import { CodexTui } from './agents/codex-cli.mts';
+import { GeminiTui } from './agents/gemini-cli.mts';
 
 interface WorkerConfig {
   id: string;
@@ -60,6 +61,15 @@ function loadKnownAgents(): AgentRule[] {
   }
 }
 
+async function assertTmuxWindowExists(session: string, window: string, label: string) {
+  const windowTarget = `${session}:${window}`;
+  const res = await tmux.listPanes(windowTarget, '#{pane_index}');
+  if (res.code !== 0 || !res.stdout.trim()) {
+    console.error(`${label}: tmux window '${windowTarget}' does not exist`);
+    process.exit(1);
+  }
+}
+
 async function detectAgent(session: string, window: string): Promise<string | null> {
   const rules = loadKnownAgents();
   const windowTarget = `${session}:${window}`;
@@ -102,6 +112,8 @@ async function detectAgent(session: string, window: string): Promise<string | nu
 }
 
 async function doAssigned(w: WorkerConfig, dir: string, target: string) {
+  await assertTmuxWindowExists(w.session, w.window, w.id);
+
   const configuredDir = expandHome(w.dir);
 
   if (!isGitClean(configuredDir)) {
@@ -139,6 +151,8 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     tui = new CodexTui(target);
   } else if (agent === 'claude') {
     tui = new ClaudeTui(target);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(target);
   }
 
   if (tui) {
@@ -150,16 +164,22 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
 
     console.log(`${w.id}: clean prompt detected. Sending handoff...`);
 
-    // IMPORTANT: We deliberately do NOT send /clear for Claude.
-    // /new is sufficient to start fresh. Sending /clear after /new
-    // can cause Claude to get into a bad state.
-    await tmux.sendKeys(target, '/new', false);   // type the command first
-    await sleep(500);                             // let it register before Enter
-    await tmux.sendKeys(target, 'Enter', false);  // press Enter cleanly
-    await sleep(10000);                           // give /new time to fully initialize the fresh prompt
-    await tmux.sendKeys(target, '/goal follow the instructions in goal.md', false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
+    if (agent === 'claude' || agent.includes('codex')) {
+      // Claude/Codex handoff protocol
+      // IMPORTANT: We deliberately do NOT send /clear for Claude.
+      await tmux.sendKeys(target, '/new', false);
+      await sleep(500);
+      await tmux.sendKeys(target, 'Enter', false);
+      await sleep(10000);
+      await tmux.sendKeys(target, '/goal follow the instructions in goal.md', false);
+      await sleep(500);
+      await tmux.sendKeys(target, 'Enter', false);
+    } else if (agent === 'gemini') {
+      // Basic handoff for Gemini (agy). Adjust as needed.
+      await tmux.sendKeys(target, 'Follow the instructions in goal.md', false);
+      await sleep(500);
+      await tmux.sendKeys(target, 'Enter', false);
+    }
 
     console.log(`${w.id}: handoff sent to ${agent}.`);
   } else {
@@ -168,6 +188,8 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
 }
 
 async function doReview(manager: WorkerConfig, targetWorkerId: string) {
+  await assertTmuxWindowExists(manager.session, manager.window, manager.id);
+
   const targetPane = `${manager.session}:${manager.window}.0`;
 
   const detected = await detectAgent(manager.session, manager.window);
@@ -185,6 +207,9 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
     message = reviewMessage;
   } else if (agent === 'claude') {
     tui = new ClaudeTui(targetPane);
+    message = reviewMessage;
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(targetPane);
     message = reviewMessage;
   } else {
     console.error(`${manager.id}: no TUI handler implemented for agent '${agent}'`);
@@ -206,6 +231,8 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
 }
 
 async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
+  await assertTmuxWindowExists(manager.session, manager.window, manager.id);
+
   const targetPane = `${manager.session}:${manager.window}.0`;
 
   const detected = await detectAgent(manager.session, manager.window);
@@ -221,6 +248,8 @@ async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
     tui = new CodexTui(targetPane);
   } else if (agent === 'claude') {
     tui = new ClaudeTui(targetPane);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(targetPane);
   } else {
     console.error(`${manager.id}: no TUI handler implemented for agent '${agent}'`);
     process.exit(1);
