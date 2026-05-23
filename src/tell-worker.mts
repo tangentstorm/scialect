@@ -5,6 +5,11 @@ import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import * as tmux from './tmux.mts';
 import { ClaudeTui } from './agents/claude-cli.mts';
+import { CodexTui } from './agents/codex-cli.mts';
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
 
 interface WorkerConfig {
   id: string;
@@ -35,6 +40,69 @@ function sleep(ms: number) {
 function isGitClean(dir: string): boolean {
   const res = spawnSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' });
   return res.status === 0 && !res.stdout.trim();
+}
+
+interface AgentRule {
+  name: string;
+  match: {
+    command?: string;
+    args_contains?: string;
+    title_contains?: string;
+  };
+}
+
+function loadKnownAgents(): AgentRule[] {
+  const path = resolve(process.cwd(), 'known-agents.jsonl');
+  try {
+    return readFileSync(path, 'utf8')
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(line => JSON.parse(line) as AgentRule);
+  } catch {
+    return [];
+  }
+}
+
+async function detectAgent(session: string, window: string): Promise<string | null> {
+  const rules = loadKnownAgents();
+  const windowTarget = `${session}:${window}`;
+
+  try {
+    const res = await tmux.listPanes(windowTarget, '#{pane_index} #{pane_pid} #{pane_current_command} #{pane_current_path} "#{pane_title}"');
+    if (res.code !== 0 || !res.stdout.trim()) return null;
+
+    const lines = res.stdout.trim().split('\n');
+    // Focus on the first/main pane for now
+    const first = lines[0].split(' ');
+    if (first.length < 5) return null;
+
+    const pid = first[1];
+    const command = first[2];
+    const title = lines[0].match(/"([^"]*)"$/)?.[1] || '';
+
+    // Get process info
+    const proc = spawnSync('ps', ['-p', pid, '-o', 'comm=,args='], { encoding: 'utf8' });
+    let args = '';
+    if (proc.status === 0) {
+      const space = proc.stdout.indexOf(' ');
+      args = space > 0 ? proc.stdout.slice(space + 1) : '';
+    }
+
+    const cmdBase = command.split('/').pop() || command;
+
+    for (const rule of rules) {
+      const m = rule.match;
+      if (m.command && cmdBase !== m.command) continue;
+      if (m.args_contains && !args.includes(m.args_contains)) continue;
+      if (m.title_contains && !title.includes(m.title_contains)) continue;
+      return rule.name;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 async function doAssigned(w: WorkerConfig, dir: string, target: string) {
@@ -71,18 +139,9 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
   if (agent === 'claude') {
     const claude = new ClaudeTui(target);
 
-    console.log(`${w.id}: waiting for clean Claude prompt...`);
-    let ready = false;
-    for (let i = 0; i < 30; i++) {
-      if (await claude.isAtPrompt()) {
-        ready = true;
-        break;
-      }
-      await sleep(800);
-    }
-
-    if (!ready) {
-      console.error(`${w.id}: never reached clean prompt`);
+    console.log(`${w.id}: waiting for empty Claude prompt (up to 5s)...`);
+    if (!await claude.ensurePromptIsEmpty()) {
+      console.error(`${w.id}: never reached empty prompt`);
       process.exit(1);
     }
 
@@ -98,10 +157,51 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
   }
 }
 
+async function doReview(manager: WorkerConfig, targetWorkerId: string) {
+  const targetPane = `${manager.session}:${manager.window}.0`;
+
+  const detected = await detectAgent(manager.session, manager.window);
+  const agent = (detected || manager.expected_agent || 'unknown').toLowerCase();
+
+  console.log(`${manager.id}: detected agent = ${agent}`);
+
+  const reviewMessage = `${targetWorkerId} has stopped. Please review its result.md and recent commits and decide whether to ACCEPT, REJECT, or ADJUST.`;
+
+  let tui: any = null;
+  let message = '';
+
+  if (agent.includes('codex')) {
+    tui = new CodexTui(targetPane);
+    message = reviewMessage;
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(targetPane);
+    message = reviewMessage;
+  } else {
+    console.error(`${manager.id}: no TUI handler implemented for agent '${agent}'`);
+    process.exit(1);
+  }
+
+  console.log(`${manager.id}: waiting for empty prompt (up to 5s)...`);
+  if (!await tui.ensurePromptIsEmpty()) {
+    console.error(`${manager.id}: never reached empty prompt`);
+    process.exit(1);
+  }
+
+  console.log(`${manager.id}: sending review request for ${targetWorkerId}...`);
+  await tmux.sendKeys(targetPane, message, false);
+  await sleep(500);
+  await tmux.sendKeys(targetPane, 'Enter', false);
+
+  console.log(`${manager.id}: review request sent for ${targetWorkerId}.`);
+}
+
 async function main() {
-  const [workerId, action] = process.argv.slice(2);
+  const [workerId, action, ...args] = process.argv.slice(2);
+
   if (!workerId || !action) {
-    console.error('Usage: npm run tell-worker -- <jcN> assigned');
+    console.error('Usage:');
+    console.error('  npm run tell-worker -- <id> assigned');
+    console.error('  npm run tell-worker -- <manager> review <worker>');
     process.exit(1);
   }
 
@@ -116,6 +216,13 @@ async function main() {
 
   if (action === 'assigned') {
     await doAssigned(w, w.dir, target);
+  } else if (action === 'review') {
+    const targetWorkerId = args[0];
+    if (!targetWorkerId) {
+      console.error('Usage: npm run tell-worker -- <manager> review <worker>');
+      process.exit(1);
+    }
+    await doReview(w, targetWorkerId);
   } else {
     console.error(`Unknown action: ${action}`);
     process.exit(1);
