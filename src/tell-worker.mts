@@ -205,6 +205,41 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   console.log(`${manager.id}: review request sent for ${targetWorkerId}.`);
 }
 
+async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
+  const targetPane = `${manager.session}:${manager.window}.0`;
+
+  const detected = await detectAgent(manager.session, manager.window);
+  const agent = (detected || manager.expected_agent || 'unknown').toLowerCase();
+
+  console.log(`${manager.id}: detected agent = ${agent}`);
+
+  const adjustMessage = `Please adjust the goal.md prompt for ${targetWorkerId}.`;
+
+  let tui: any = null;
+
+  if (agent.includes('codex')) {
+    tui = new CodexTui(targetPane);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(targetPane);
+  } else {
+    console.error(`${manager.id}: no TUI handler implemented for agent '${agent}'`);
+    process.exit(1);
+  }
+
+  console.log(`${manager.id}: waiting for empty prompt (up to 5s)...`);
+  if (!await tui.ensurePromptIsEmpty()) {
+    console.error(`${manager.id}: never reached empty prompt`);
+    process.exit(1);
+  }
+
+  console.log(`${manager.id}: sending adjust request for ${targetWorkerId}...`);
+  await tmux.sendKeys(targetPane, adjustMessage, false);
+  await sleep(500);
+  await tmux.sendKeys(targetPane, 'Enter', false);
+
+  console.log(`${manager.id}: adjust request sent for ${targetWorkerId}.`);
+}
+
 async function main() {
   const [workerId, action, ...args] = process.argv.slice(2);
 
@@ -212,6 +247,7 @@ async function main() {
     console.error('Usage:');
     console.error('  npm run tell-worker -- <id> assigned');
     console.error('  npm run tell-worker -- <manager> review <worker>');
+    console.error('  npm run tell-worker -- <manager> adjust <worker>');
     process.exit(1);
   }
 
@@ -233,6 +269,13 @@ async function main() {
       process.exit(1);
     }
     await doReview(w, targetWorkerId);
+  } else if (action === 'adjust') {
+    const targetWorkerId = args[0];
+    if (!targetWorkerId) {
+      console.error('Usage: npm run tell-worker -- <manager> adjust <worker>');
+      process.exit(1);
+    }
+    await doAdjust(w, targetWorkerId);
   } else {
     console.error(`Unknown action: ${action}`);
     process.exit(1);
