@@ -1,7 +1,6 @@
 {"name": "codex", "match": {"args_contains": "codex"}}
 {"name": "claude", "match": {"command": "claude.exe"}}
 {"name": "claude", "match": {"command": "claude"}}
-{"name": "gemini", "match": {"args_contains": "gemini"}}
-{"name": "gemini+aristotle", "match": {"command": "python", "args_contains": "aristotle_mcp"}}
+{"name": "gemini", "match": {"command": "agy"}}
 {"name": "opencode", "match": {"command": "opencode"}}
 {"name": "opencode", "match": {"title_contains": "OC |"}}
