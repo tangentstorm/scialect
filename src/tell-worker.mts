@@ -150,6 +150,9 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
 
     console.log(`${w.id}: clean prompt detected. Sending handoff...`);
 
+    // IMPORTANT: We deliberately do NOT send /clear for Claude.
+    // /new is sufficient to start fresh. Sending /clear after /new
+    // can cause Claude to get into a bad state.
     await tmux.sendKeys(target, '/new', false);   // type the command first
     await sleep(500);                             // let it register before Enter
     await tmux.sendKeys(target, 'Enter', false);  // press Enter cleanly
