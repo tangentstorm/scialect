@@ -1,6 +1,7 @@
 import { VideoBuffer, escPuts } from 'kvm';
 import * as tmux from '../tmux.mts';
 import { TuiAgent } from './tui-agent.mts';
+import { spawnSync } from 'node:child_process';
 
 export class ClaudeTui extends TuiAgent {
   constructor(target: string) {
@@ -8,51 +9,45 @@ export class ClaudeTui extends TuiAgent {
   }
 
   async isPromptBlank(): Promise<boolean> {
-    const raw = await tmux.capturePane(this.target, 60, true);
-    const buf = new VideoBuffer(300, 80);
-    escPuts(buf, raw);
+    // Capture as plain text (consistent with Codex)
+    const rawRes = spawnSync('tmux', ['capture-pane', '-t', this.target, '-p'], { encoding: 'utf8' });
+    const raw = rawRes.stdout ?? '';
 
-    // Find the lowest long horizontal bar
-    let bottomBarY = -1;
-    for (let y = buf.height - 1; y >= 0; y--) {
-      let barCount = 0;
-      for (let x = 0; x < 300; x++) {
-        if (String.fromCodePoint(buf.charCodes[buf.index(x, y)] || 32) === '─') barCount++;
-      }
-      if (barCount >= 30) {
-        bottomBarY = y;
-        break;
+    const lines = raw.split('\n');
+
+    // Find the two lowest lines that contain long horizontal bars
+    const barLines: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const stripped = lines[i].replace(/─/g, '');
+      if (lines[i].includes('─') && stripped.trim().length < 15) {
+        barLines.push(i);
       }
     }
 
-    if (bottomBarY < 0) return false;
-
-    // Look a few lines above the bottom bar for the live ❯
-    let promptY = -1;
-    let promptX = -1;
-
-    for (let dy = 1; dy <= 5 && bottomBarY - dy >= 0; dy++) {
-      const y = bottomBarY - dy;
-      for (let x = 0; x < 300; x++) {
-        if (String.fromCodePoint(buf.charCodes[buf.index(x, y)] || 32) === '❯') {
-          promptY = y;
-          promptX = x;
-          break;
+    if (barLines.length < 2) {
+      // Fallback: last line containing ❯ with nothing after it
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const pos = lines[i].indexOf('❯');
+        if (pos !== -1) {
+          const after = lines[i].slice(pos + 1);
+          return after.trim() === '';
         }
       }
-      if (promptY !== -1) break;
+      return false;
     }
 
-    if (promptY === -1 || promptX === -1) return false;
+    // The input prompt is between the last two bars
+    const bottomBar = barLines[barLines.length - 1];
+    const secondBottom = barLines[barLines.length - 2];
 
-    // Exact same rule as Codex: return true only if there is no non-whitespace after the ❯
-    for (let x = promptX + 1; x < promptX + 100 && x < 300; x++) {
-      const ch = String.fromCodePoint(buf.charCodes[buf.index(x, promptY)] || 32);
-      if (ch.trim() !== '') {
-        return false;
+    for (let i = secondBottom + 1; i < bottomBar; i++) {
+      const pos = lines[i].indexOf('❯');
+      if (pos !== -1) {
+        const after = lines[i].slice(pos + 1);
+        return after.trim() === '';
       }
     }
 
-    return true;
+    return false;
   }
 }
