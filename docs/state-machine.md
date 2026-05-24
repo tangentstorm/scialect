@@ -59,12 +59,12 @@ stateDiagram-v2
 
 ---
 
-## 2. Why it behaves like a Petri Net & UML Activity Diagram
+## 2. Petri Net & UML Activity Diagram Conceptual Model
 
-You are absolutely right to note that a simple state machine doesn't capture the whole story. The swarm behaves fundamentally like a **Petri Net** or a **UML Activity Diagram with Swimlanes**:
+The swarm behaves fundamentally like a **Petri Net** or a **UML Activity Diagram with Swimlanes** rather than a single sequential state machine:
 
 1.  **Token-Based Coordination**: 
-    Workers and managers don't block each other's execution threads. Instead, they deposit "tokens" into status files (`.sci/status-line`). For instance, a worker depositing a `READY` token is a transition firing.
+    Workers and managers don't block each other's execution threads. Instead, they deposit "tokens" into status files (`.sci/status-line`). For instance, a worker depositing a `READY` token fires an asynchronous state transition.
 2.  **Concurrency Swimlanes (UML Activity)**:
     Multiple workers are active in their own "working" swimlanes. The manager acts as an asynchronous synchronization barrier. 
 3.  **The AWAITING Buffer State**:
