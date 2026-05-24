@@ -23,16 +23,16 @@ stateDiagram-v2
             WORKING --> SUGGEST : Next task plan drafted in task.md (Planning Mode)
             WORKING --> BLOCKED : Stuck on compiler or gating block
             
-            READY --> WAITING_REVIEW : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
-            SUGGEST --> WAITING_APPROVAL : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
-            BLOCKED --> WAITING_TRIAGE : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+            READY --> AWAITING_REVIEW : Run local-step (jcx -> AWAITING, mgr -> REVIEWING)
+            SUGGEST --> AWAITING_APPROVAL : Run local-step (jcx -> AWAITING, mgr -> REVIEWING)
+            BLOCKED --> AWAITING_TRIAGE : Run local-step (jcx -> AWAITING, mgr -> REVIEWING)
             
-            WAITING_REVIEW --> WORKING_PLANNING : Mgr accepts code (Run local-step / accept)
-            WAITING_APPROVAL --> WORKING : Mgr approves task plan (Run local-step / accept)
-            WAITING_TRIAGE --> WORKING : Mgr provides stubs / unblocks (Run local-step / accept)
+            AWAITING_REVIEW --> WORKING_PLANNING : Mgr accepts code (Run local-step / accept)
+            AWAITING_APPROVAL --> WORKING : Mgr approves task plan (Run local-step / accept)
+            AWAITING_TRIAGE --> WORKING : Mgr provides stubs / unblocks (Run local-step / accept)
             
-            WAITING_REVIEW --> WORKING : Mgr rejects code (Reset to WORKING: starting task)
-            WAITING_APPROVAL --> WORKING_ADJUST : Mgr requests adjustments (Run local-step / adjust)
+            AWAITING_REVIEW --> WORKING : Mgr rejects code (Reset to WORKING: starting task)
+            AWAITING_APPROVAL --> WORKING_ADJUST : Mgr requests adjustments (Run local-step / adjust)
             
             WORKING_PLANNING --> SUGGEST : Draft next step in task.md
             WORKING_ADJUST --> SUGGEST : Adjust plan in task.md
@@ -67,8 +67,8 @@ You are absolutely right to note that a simple state machine doesn't capture the
     Workers and managers don't block each other's execution threads. Instead, they deposit "tokens" into status files (`.sci/status-line`). For instance, a worker depositing a `READY` token is a transition firing.
 2.  **Concurrency Swimlanes (UML Activity)**:
     Multiple workers are active in their own "working" swimlanes. The manager acts as an asynchronous synchronization barrier. 
-3.  **The WAITING Buffer State**:
-    To prevent the coordinator from re-triggering the same handoff in subsequent scans, the interactive orchestrator (`local-step`) acts as a transition rule that consumes a worker's `READY`/`SUGGEST`/`BLOCKED` token, moves the worker to a safe `WAITING` buffer, and allocates the `REVIEWING` task to the manager.
+3.  **The AWAITING Buffer State**:
+    To prevent the coordinator from re-triggering the same handoff in subsequent scans, the interactive orchestrator (`local-step`) acts as a transition rule that consumes a worker's `READY`/`SUGGEST`/`BLOCKED` token, moves the worker to a safe `AWAITING` buffer, and allocates the `REVIEWING` task to the manager.
 
 ---
 
@@ -88,7 +88,7 @@ A worker reports its current state by writing exactly one line to `.sci/status-l
     *   *Meaning*: The worker has completed the planning phase, written the proposed next step into `task.md`, and is **ready for the manager (`mgr`) to approve the new task plan**.
 6.  **`BLOCKED: [reason]`**
     *   *Meaning*: The worker is genuinely blocked (cross-group gating or compiler/universe error) and has appended a triage report to the bottom of `task.md`.
-7.  **`WAITING: [detail]`**
+7.  **`AWAITING: [detail]`**
     *   *Meaning*: The worker has submitted code or plans and is temporarily paused, waiting for the manager to complete the review or triage.
 8.  **`COMPLETE: [goal_description]`**
     *   *Meaning*: The worker has successfully completed their **entire `goal.md` module**, verified that the entire target builds with zero `sorry`s, and is completely done with their overall phase.

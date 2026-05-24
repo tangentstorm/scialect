@@ -125,10 +125,10 @@ async function main() {
       
       if (wStatus.toUpperCase().startsWith('READY')) {
         proposals.push({
-          description: `[Handoff] Worker ${w.id} is READY. Transition ${w.id} to WAITING and hand off code review to manager.`,
+          description: `[Handoff] Worker ${w.id} is READY. Transition ${w.id} to AWAITING and hand off code review to manager.`,
           execute: async () => {
-            console.log(`Setting ${w.id} status to WAITING: code review...`);
-            writeStatus(w.dir, 'WAITING: code review');
+            console.log(`Setting ${w.id} status to AWAITING: code review...`);
+            writeStatus(w.dir, 'AWAITING: code review');
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
             writeStatus(mgr.dir, `REVIEWING: ${w.id}`);
             console.log(`Running tell-worker review for ${w.id}...`);
@@ -140,10 +140,10 @@ async function main() {
         });
       } else if (wStatus.toUpperCase().startsWith('SUGGEST')) {
         proposals.push({
-          description: `[Handoff] Worker ${w.id} has suggested a new plan (SUGGEST). Transition ${w.id} to WAITING and hand off task plan approval to manager.`,
+          description: `[Handoff] Worker ${w.id} has suggested a new plan (SUGGEST). Transition ${w.id} to AWAITING and hand off task plan approval to manager.`,
           execute: async () => {
-            console.log(`Setting ${w.id} status to WAITING: task plan approval...`);
-            writeStatus(w.dir, 'WAITING: task plan approval');
+            console.log(`Setting ${w.id} status to AWAITING: task plan approval...`);
+            writeStatus(w.dir, 'AWAITING: task plan approval');
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
             writeStatus(mgr.dir, `REVIEWING: ${w.id}`);
             console.log(`Running tell-worker approve-task for ${w.id}...`);
@@ -155,10 +155,10 @@ async function main() {
         });
       } else if (wStatus.toUpperCase().startsWith('BLOCKED')) {
         proposals.push({
-          description: `[Handoff] Worker ${w.id} is BLOCKED. Transition ${w.id} to WAITING and hand off blocker triage to manager.`,
+          description: `[Handoff] Worker ${w.id} is BLOCKED. Transition ${w.id} to AWAITING and hand off blocker triage to manager.`,
           execute: async () => {
-            console.log(`Setting ${w.id} status to WAITING: blocker triage...`);
-            writeStatus(w.dir, 'WAITING: blocker triage');
+            console.log(`Setting ${w.id} status to AWAITING: blocker triage...`);
+            writeStatus(w.dir, 'AWAITING: blocker triage');
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
             writeStatus(mgr.dir, `REVIEWING: ${w.id}`);
             console.log(`Running tell-worker unblock for ${w.id}...`);
@@ -186,7 +186,7 @@ async function main() {
   }
 
   if (busyWorkers.length > 0) {
-    console.log('⚠️  PENDING WORKERS (WAITING FOR MANAGER TO BE IDLE):');
+    console.log('⚠️  PENDING WORKERS (AWAITING MANAGER TO BE IDLE):');
     for (const bw of busyWorkers) {
       console.log(`- ${bw.id} is currently ${bw.status}`);
     }
