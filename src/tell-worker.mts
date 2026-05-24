@@ -78,20 +78,26 @@ async function detectAgent(session: string, window: string): Promise<string | nu
     if (res.code !== 0 || !res.stdout.trim()) return null;
 
     const lines = res.stdout.trim().split('\n');
+    if (lines.length === 0 || !lines[0]) return null;
+    
     // Focus on the first/main pane for now
     const first = lines[0].split(' ');
     if (first.length < 5) return null;
 
     const pid = first[1];
     const command = first[2];
-    const title = lines[0].match(/"([^"]*)"$/)?.[1] || '';
+    if (!pid || !command) return null;
+
+    const titleMatch = lines[0].match(/"([^"]*)"$/);
+    const title = titleMatch ? (titleMatch[1] || '') : '';
 
     // Get process info
     const proc = spawnSync('ps', ['-p', pid, '-o', 'comm=,args='], { encoding: 'utf8' });
     let args = '';
-    if (proc.status === 0) {
-      const space = proc.stdout.indexOf(' ');
-      args = space > 0 ? proc.stdout.slice(space + 1) : '';
+    if (proc.status === 0 && proc.stdout) {
+      const stdoutStr = proc.stdout.toString();
+      const space = stdoutStr.indexOf(' ');
+      args = space > 0 ? stdoutStr.slice(space + 1) : '';
     }
 
     const cmdBase = command.split('/').pop() || command;
@@ -110,10 +116,56 @@ async function detectAgent(session: string, window: string): Promise<string | nu
   return null;
 }
 
+function getCommittedGuideContent(guideName: string): string | null {
+  const scialectRoot = resolve(process.cwd());
+  const res = spawnSync('git', ['show', `HEAD:rules/${guideName}`], { cwd: scialectRoot, encoding: 'utf8' });
+  if (res.status === 0) {
+    return res.stdout;
+  }
+  return null;
+}
+
+function propagateGuide(targetDir: string, guideName: string): boolean {
+  const committedContent = getCommittedGuideContent(guideName);
+  if (!committedContent) {
+    console.error(`Error: Could not retrieve committed content for rules/${guideName}`);
+    process.exit(1);
+  }
+
+  const sciDir = resolve(targetDir, '.sci');
+  const targetPath = resolve(sciDir, guideName);
+
+  let existingContent = '';
+  if (existsSync(targetPath)) {
+    existingContent = readFileSync(targetPath, 'utf8');
+  }
+
+  if (existingContent.trim() !== committedContent.trim()) {
+    writeFileSync(targetPath, committedContent, 'utf8');
+    return true; // Content actually changed or is new
+  }
+
+  return false; // Content did not change
+}
+
+function checkManagerIdle(manager: WorkerConfig) {
+  const configuredDir = expandHome(manager.dir);
+  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(sciDir, 'status-line');
+
+  if (existsSync(statusPath)) {
+    const statusContent = readFileSync(statusPath, 'utf8').trim();
+    if (statusContent && !statusContent.startsWith('IDLE')) {
+      console.error(`${manager.id}: Manager status is not IDLE (currently: '${statusContent}'). Cannot hand off new task.`);
+      process.exit(1);
+    }
+  }
+}
+
 async function doAssigned(w: WorkerConfig, dir: string, target: string) {
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
-  const configuredDir = expandHome(w.dir);
+  const configuredDir = expandHome(dir);
 
   if (!isGitClean(configuredDir)) {
     console.error(`${w.id}: git tree is not clean`);
@@ -133,19 +185,20 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     process.exit(1);
   }
 
-  const goalContent = readFileSync(goalPath, 'utf8');
-
   // Remove old result
   const resultPath = resolve(sciDir, 'result.md');
   if (existsSync(resultPath)) {
     unlinkSync(resultPath);
   }
 
+  // Propagate proving-guide.md
+  const changed = propagateGuide(configuredDir, 'proving-guide.md');
+
   // Set status-line inside .sci/
   const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `ASSIGNED: ${goalContent.split('\n')[0].slice(0, 80)}\n`, 'utf8');
+  writeFileSync(statusPath, `WORKING: starting task\n`, 'utf8');
 
-  console.log(`${w.id}: files prepared (ASSIGNED, .sci/goal.md + task.md, result cleared)`);
+  console.log(`${w.id}: files prepared (WORKING, .sci/goal.md + task.md, result cleared, guide propagated)`);
 
   // Now talk to the live agent in the pane
   const detected = await detectAgent(w.session, w.window);
@@ -170,19 +223,19 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
 
     console.log(`${w.id}: clean prompt detected. Sending handoff...`);
 
+    const changeNotice = changed ? ' IMPORTANT: .sci/proving-guide.md has just been updated with new instructions; please read it carefully.' : '';
+    const handoffMsg = `/goal follow the instructions in .sci/task.md (see .sci/goal.md for context). Please refer to .sci/proving-guide.md for detailed instructions.${changeNotice}`;
+
     if (agent === 'claude' || agent.includes('codex')) {
-      // Claude/Codex handoff protocol
-      // IMPORTANT: We deliberately do NOT send /clear for Claude.
       await tmux.sendKeys(target, '/new', false);
       await sleep(500);
       await tmux.sendKeys(target, 'Enter', false);
       await sleep(10000);
-      await tmux.sendKeys(target, '/goal follow the instructions in .sci/task.md (see .sci/goal.md for context)', false);
+      await tmux.sendKeys(target, handoffMsg, false);
       await sleep(500);
       await tmux.sendKeys(target, 'Enter', false);
     } else if (agent === 'gemini') {
-      // Basic handoff for Gemini (agy). Adjust as needed.
-      await tmux.sendKeys(target, 'Follow the instructions in .sci/task.md (see .sci/goal.md for context)', false);
+      await tmux.sendKeys(target, handoffMsg, false);
       await sleep(500);
       await tmux.sendKeys(target, 'Enter', false);
     }
@@ -193,30 +246,126 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
   }
 }
 
+async function doAccept(w: WorkerConfig, dir: string, target: string) {
+  await assertTmuxWindowExists(w.session, w.window, w.id);
+
+  const configuredDir = expandHome(dir);
+  const sciDir = resolve(configuredDir, '.sci');
+
+  const changed = propagateGuide(configuredDir, 'proving-guide.md');
+
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `WORKING: plan next step\n`, 'utf8');
+
+  console.log(`${w.id}: files prepared (WORKING: plan next step, guide propagated)`);
+
+  const detected = await detectAgent(w.session, w.window);
+  const agent = (detected || 'claude').toLowerCase();
+
+  let tui: any = null;
+  if (agent.includes('codex')) {
+    tui = new CodexTui(target);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(target);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(target);
+  }
+
+  if (tui) {
+    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
+    if (!await tui.ensurePromptIsEmpty()) {
+      console.error(`${w.id}: never reached empty prompt`);
+      process.exit(1);
+    }
+
+    const changeNotice = changed ? ' IMPORTANT: .sci/proving-guide.md has just been updated with new instructions; please read it carefully.' : '';
+    const handoffMsg = `Your recent work has been accepted! Please read your .sci/plan.md, formulate your next commit-sized step in .sci/task.md, and set your status to SUGGEST when your task plan is ready for manager approval. Refer to .sci/proving-guide.md for detailed instructions.${changeNotice}`;
+
+    await tmux.sendKeys(target, handoffMsg, false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
+
+    console.log(`${w.id}: accept handoff sent to ${agent}.`);
+  } else {
+    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
+  }
+}
+
+async function doAdjust(w: WorkerConfig, dir: string, target: string) {
+  await assertTmuxWindowExists(w.session, w.window, w.id);
+
+  const configuredDir = expandHome(dir);
+  const sciDir = resolve(configuredDir, '.sci');
+
+  const changed = propagateGuide(configuredDir, 'adjust-guide.md');
+
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `WORKING: adjust task plan\n`, 'utf8');
+
+  console.log(`${w.id}: files prepared (WORKING: adjust task plan, guide propagated)`);
+
+  const detected = await detectAgent(w.session, w.window);
+  const agent = (detected || 'claude').toLowerCase();
+
+  let tui: any = null;
+  if (agent.includes('codex')) {
+    tui = new CodexTui(target);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(target);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(target);
+  }
+
+  if (tui) {
+    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
+    if (!await tui.ensurePromptIsEmpty()) {
+      console.error(`${w.id}: never reached empty prompt`);
+      process.exit(1);
+    }
+
+    const changeNotice = changed ? ' IMPORTANT: .sci/adjust-guide.md has just been updated with new instructions; please read it carefully.' : '';
+    const handoffMsg = `Your proposed task plan was not approved by the manager. Please adjust the task in .sci/task.md based on the manager's feedback. Refer to .sci/adjust-guide.md for detailed instructions.${changeNotice}`;
+
+    await tmux.sendKeys(target, handoffMsg, false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
+
+    console.log(`${w.id}: adjust handoff sent to ${agent}.`);
+  } else {
+    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
+  }
+}
+
 async function doReview(manager: WorkerConfig, targetWorkerId: string) {
+  checkManagerIdle(manager);
   await assertTmuxWindowExists(manager.session, manager.window, manager.id);
 
-  const targetPane = `${manager.session}:${manager.window}.0`;
+  const configuredDir = expandHome(manager.dir);
+  const sciDir = resolve(configuredDir, '.sci');
 
+  // Propagate review-guide.md
+  const changed = propagateGuide(configuredDir, 'review-guide.md');
+
+  // Set manager status
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
+
+  const targetPane = `${manager.session}:${manager.window}.0`;
   const detected = await detectAgent(manager.session, manager.window);
   const agent = (detected || 'unknown').toLowerCase();
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
-  const reviewMessage = `${targetWorkerId} has stopped. Please review its .sci/result.md and recent commits and decide whether to ACCEPT, REJECT, or ADJUST.`;
+  const changeNotice = changed ? ' IMPORTANT: .sci/review-guide.md has just been updated with new instructions; please read it carefully.' : '';
+  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Refer to .sci/review-guide.md for detailed instructions on conducting reviews and setting your status.${changeNotice}`;
 
   let tui: any = null;
-  let message = '';
-
   if (agent.includes('codex')) {
     tui = new CodexTui(targetPane);
-    message = reviewMessage;
   } else if (agent === 'claude') {
     tui = new ClaudeTui(targetPane);
-    message = reviewMessage;
   } else if (agent === 'gemini') {
     tui = new GeminiTui(targetPane);
-    message = reviewMessage;
   } else {
     console.error(`${manager.id}: no TUI handler implemented for agent '${agent}'`);
     process.exit(1);
@@ -229,27 +378,37 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   }
 
   console.log(`${manager.id}: sending review request for ${targetWorkerId}...`);
-  await tmux.sendKeys(targetPane, message, false);
+  await tmux.sendKeys(targetPane, reviewMessage, false);
   await sleep(500);
   await tmux.sendKeys(targetPane, 'Enter', false);
 
   console.log(`${manager.id}: review request sent for ${targetWorkerId}.`);
 }
 
-async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
+async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
+  checkManagerIdle(manager);
   await assertTmuxWindowExists(manager.session, manager.window, manager.id);
 
-  const targetPane = `${manager.session}:${manager.window}.0`;
+  const configuredDir = expandHome(manager.dir);
+  const sciDir = resolve(configuredDir, '.sci');
 
+  // Propagate approve-task-guide.md
+  const changed = propagateGuide(configuredDir, 'approve-task-guide.md');
+
+  // Set manager status
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
+
+  const targetPane = `${manager.session}:${manager.window}.0`;
   const detected = await detectAgent(manager.session, manager.window);
   const agent = (detected || 'unknown').toLowerCase();
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
-  const adjustMessage = `Please adjust the .sci/task.md for ${targetWorkerId}. (Do not change .sci/goal.md)`;
+  const changeNotice = changed ? ' IMPORTANT: .sci/approve-task-guide.md has just been updated with new instructions; please read it carefully.' : '';
+  const approveMessage = `Please review and approve the proposed next task plan in .sci/task.md for ${targetWorkerId}. Refer to .sci/approve-task-guide.md for detailed instructions.${changeNotice}`;
 
   let tui: any = null;
-
   if (agent.includes('codex')) {
     tui = new CodexTui(targetPane);
   } else if (agent === 'claude') {
@@ -267,12 +426,61 @@ async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
     process.exit(1);
   }
 
-  console.log(`${manager.id}: sending adjust request for ${targetWorkerId}...`);
-  await tmux.sendKeys(targetPane, adjustMessage, false);
+  console.log(`${manager.id}: sending task approval request for ${targetWorkerId}...`);
+  await tmux.sendKeys(targetPane, approveMessage, false);
   await sleep(500);
   await tmux.sendKeys(targetPane, 'Enter', false);
 
-  console.log(`${manager.id}: adjust request sent for ${targetWorkerId}.`);
+  console.log(`${manager.id}: task approval request sent for ${targetWorkerId}.`);
+}
+
+async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
+  checkManagerIdle(manager);
+  await assertTmuxWindowExists(manager.session, manager.window, manager.id);
+
+  const configuredDir = expandHome(manager.dir);
+  const sciDir = resolve(configuredDir, '.sci');
+
+  // Propagate unblock-guide.md
+  const changed = propagateGuide(configuredDir, 'unblock-guide.md');
+
+  // Set manager status
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
+
+  const targetPane = `${manager.session}:${manager.window}.0`;
+  const detected = await detectAgent(manager.session, manager.window);
+  const agent = (detected || 'unknown').toLowerCase();
+
+  console.log(`${manager.id}: detected agent = ${agent}`);
+
+  const changeNotice = changed ? ' IMPORTANT: .sci/unblock-guide.md has just been updated with new instructions; please read it carefully.' : '';
+  const unblockMessage = `Please triage the blocker for ${targetWorkerId} and help unblock them. Refer to .sci/unblock-guide.md for detailed instructions.${changeNotice}`;
+
+  let tui: any = null;
+  if (agent.includes('codex')) {
+    tui = new CodexTui(targetPane);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(targetPane);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(targetPane);
+  } else {
+    console.error(`${manager.id}: no TUI handler implemented for agent '${agent}'`);
+    process.exit(1);
+  }
+
+  console.log(`${manager.id}: waiting for empty prompt (up to 5s)...`);
+  if (!await tui.ensurePromptIsEmpty()) {
+    console.error(`${manager.id}: never reached empty prompt`);
+    process.exit(1);
+  }
+
+  console.log(`${manager.id}: sending unblock request for ${targetWorkerId}...`);
+  await tmux.sendKeys(targetPane, unblockMessage, false);
+  await sleep(500);
+  await tmux.sendKeys(targetPane, 'Enter', false);
+
+  console.log(`${manager.id}: unblock request sent for ${targetWorkerId}.`);
 }
 
 async function main() {
@@ -280,9 +488,12 @@ async function main() {
 
   if (!workerId || !action) {
     console.error('Usage:');
-    console.error('  npm run tell-worker -- <id> assigned');
+    console.error('  npm run tell-worker -- <worker> assigned');
+    console.error('  npm run tell-worker -- <worker> accept');
+    console.error('  npm run tell-worker -- <worker> adjust');
     console.error('  npm run tell-worker -- <manager> review <worker>');
-    console.error('  npm run tell-worker -- <manager> adjust <worker>');
+    console.error('  npm run tell-worker -- <manager> approve-task <worker>');
+    console.error('  npm run tell-worker -- <manager> unblock <worker>');
     process.exit(1);
   }
 
@@ -297,6 +508,10 @@ async function main() {
 
   if (action === 'assigned') {
     await doAssigned(w, w.dir, target);
+  } else if (action === 'accept') {
+    await doAccept(w, w.dir, target);
+  } else if (action === 'adjust') {
+    await doAdjust(w, w.dir, target);
   } else if (action === 'review') {
     const targetWorkerId = args[0];
     if (!targetWorkerId) {
@@ -304,13 +519,20 @@ async function main() {
       process.exit(1);
     }
     await doReview(w, targetWorkerId);
-  } else if (action === 'adjust') {
+  } else if (action === 'approve-task') {
     const targetWorkerId = args[0];
     if (!targetWorkerId) {
-      console.error('Usage: npm run tell-worker -- <manager> adjust <worker>');
+      console.error('Usage: npm run tell-worker -- <manager> approve-task <worker>');
       process.exit(1);
     }
-    await doAdjust(w, targetWorkerId);
+    await doApproveTask(w, targetWorkerId);
+  } else if (action === 'unblock') {
+    const targetWorkerId = args[0];
+    if (!targetWorkerId) {
+      console.error('Usage: npm run tell-worker -- <manager> unblock <worker>');
+      process.exit(1);
+    }
+    await doUnblock(w, targetWorkerId);
   } else {
     console.error(`Unknown action: ${action}`);
     process.exit(1);
