@@ -42,8 +42,8 @@ stateDiagram-v2
         }
         --
         state "Manager Lifecycle (Sequential Gatekeeper)" as ManagerLifecycle {
-            [*] --> IDLE_MGR : Ready for Review
-            IDLE_MGR --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
+            [*] --> IDLE : Ready for Review
+            IDLE --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
             REVIEWING --> REVIEWED_DECISION : Mgr writes ACCEPT/ADJUST/REJECT to status-line
             
             state "Reviewed Decision State" as REVIEWED_DECISION {
@@ -52,7 +52,7 @@ stateDiagram-v2
                 REVIEWED_REJECT : REVIEWED: REJECT [worker]
             }
             
-            REVIEWED_DECISION --> IDLE_MGR : Run local-step (Processes decision & triggers worker)
+            REVIEWED_DECISION --> IDLE : Run local-step (Processes decision & triggers worker)
         }
     }
 ```
