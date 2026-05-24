@@ -142,7 +142,7 @@ function getGitStatusSummary(cwd: string): string {
   }
 }
 
-async function main() {
+async function collectSwarmRows(): Promise<string[][]> {
   const workersPath = resolve(process.cwd(), 'workers.jsonl');
   const lines = readFileSync(workersPath, 'utf8')
     .split('\n')
@@ -154,54 +154,62 @@ async function main() {
   const rows: string[][] = [];
 
   for (const w of workers) {
-    const configuredDir = expandHome(w.dir);
-    const { detectedAgent, liveCwd } = await findAgentInWindow(w.session, w.window, rules);
-
-    let branch = '—';
     try {
-      const res = await git.branchShowCurrent(configuredDir);
-      branch = res.stdout.trim() || '—';
-    } catch {}
+      const configuredDir = expandHome(w.dir);
+      const { detectedAgent, liveCwd } = await findAgentInWindow(w.session, w.window, rules);
 
-    const goalPath = resolve(configuredDir, '.sci', 'goal.md');
-    const resultPath = resolve(configuredDir, '.sci', 'result.md');
-    const goalM = getMtime(goalPath);
-    const resultM = getMtime(resultPath);
-    let state = formatState(goalM, resultM);
+      let branch = '—';
+      try {
+        const res = await git.branchShowCurrent(configuredDir);
+        branch = res.stdout.trim() || '—';
+      } catch {}
 
-    const statusSuffix = getGitStatusSummary(configuredDir);
+      const goalPath = resolve(configuredDir, '.sci', 'goal.md');
+      const resultPath = resolve(configuredDir, '.sci', 'result.md');
+      const goalM = getMtime(goalPath);
+      const resultM = getMtime(resultPath);
+      let state = formatState(goalM, resultM);
 
-    let statusDisplay = branch + statusSuffix;
+      const statusSuffix = getGitStatusSummary(configuredDir);
 
-    // Prefer .sci/status-line if present
-    const statusLinePath = resolve(configuredDir, '.sci', 'status-line');
-    try {
-      const content = readFileSync(statusLinePath, 'utf8').trim();
-      if (content) {
-        const firstLine = content.split('\n')[0].trim();
-        if (firstLine) {
-          // Extract keyword + remainder
-          const match = firstLine.match(/^([A-Za-z0-9_-]+)[:\s]?(.*)$/);
-          if (match) {
-            const keyword = match[1];
-            const rest = match[2] ? match[2].trim() : '';
-            state = keyword.toUpperCase();
-            statusDisplay = rest ? (rest + statusSuffix) : (keyword + statusSuffix);
-          } else {
-            statusDisplay = firstLine + statusSuffix;
+      let statusDisplay = branch + statusSuffix;
+
+      // Prefer .sci/status-line if present
+      const statusLinePath = resolve(configuredDir, '.sci', 'status-line');
+      try {
+        const content = readFileSync(statusLinePath, 'utf8').trim();
+        if (content) {
+          const firstLine = content.split('\n')[0].trim();
+          if (firstLine) {
+            // Extract keyword + remainder
+            const match = firstLine.match(/^([A-Za-z0-9_-]+)[:\s]?(.*)$/);
+            if (match) {
+              const keyword = match[1];
+              const rest = match[2] ? match[2].trim() : '';
+              state = keyword.toUpperCase();
+              statusDisplay = rest ? (rest + statusSuffix) : (keyword + statusSuffix);
+            } else {
+              statusDisplay = firstLine + statusSuffix;
+            }
           }
         }
+      } catch {
+        // no .sci/status-line → keep computed state + branch
       }
-    } catch {
-      // no .sci/status-line → keep computed state + branch
+
+      const agentDisplay = detectedAgent || 'unknown';
+
+      rows.push([w.id, agentDisplay, state, statusDisplay]);
+    } catch (err) {
+      // Per-worker failure → ERROR state (registers as a change)
+      rows.push([w.id, 'unknown', 'ERROR', String(err).slice(0, 80)]);
     }
-
-    const agentDisplay = detectedAgent || 'unknown';
-
-    rows.push([w.id, agentDisplay, state, statusDisplay]);
   }
 
-  // Print table
+  return rows;
+}
+
+function printSwarmTable(rows: string[][]) {
   const headers = ['id', 'agent', 'state', 'status'];
   const all = [headers, ...rows];
 
@@ -219,7 +227,24 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+async function main() {
+  const rows = await collectSwarmRows();
+  printSwarmTable(rows);
+}
+
+export async function getLiveSwarmRows(): Promise<string[][]> {
+  return collectSwarmRows();
+}
+
+export { printSwarmTable };
+
+export async function printLocalStatus() {
+  await main();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+}

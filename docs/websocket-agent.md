@@ -179,17 +179,32 @@ called `latest`, you will likely see your own text echoed back. Poll
 periodically and look for change, or wait for the chat's `status` to
 return to `idle`/`ready` before reading.
 
+### 4.7 `subscribe`
+
+```json
+{ "id": "<uuid>", "kind": "subscribe", "channel": "swarm" }
+```
+
+Subscribes this client to updates about the local workers (the same data
+shown by `npm run local-status`).
+
+Currently the only supported value is `channel: "swarm"`.
+
+Reply: `ok` on success. The server will then begin pushing `swarm-status`
+events (see §6.4).
+
 ## 5. Replies
 
-| `kind`   | extra fields                                | meaning |
-| -------- | ------------------------------------------- | ------- |
-| `ok`     | —                                           | request succeeded with no payload |
-| `list`   | `chats: ChatRef[]`, `active: string \| null`| response to `list` |
-| `use`    | `active: ChatRef`                           | response to `use` |
-| `status` | `chat: ChatRef`                             | response to `status` |
-| `latest` | `text: string \| null`                      | response to `latest` |
-| `pong`   | —                                           | response to `ping` |
-| `error`  | `message: string`                           | failure of any request |
+| `kind`      | extra fields                                | meaning |
+| ----------- | ------------------------------------------- | ------- |
+| `ok`        | —                                           | request succeeded with no payload |
+| `list`      | `chats: ChatRef[]`, `active: string \| null`| response to `list` |
+| `use`       | `active: ChatRef`                           | response to `use` |
+| `status`    | `chat: ChatRef`                             | response to `status` |
+| `latest`    | `text: string \| null`                      | response to `latest` |
+| `pong`      | —                                           | response to `ping` |
+| `subscribe` | —                                           | response to `subscribe` |
+| `error`     | `message: string`                           | failure of any request |
 
 Every reply (including `error`) carries the originating request's `id`,
 except the parse-failure case noted in §2 where `id: "?"`.
@@ -226,6 +241,36 @@ will signal that a chat's `status` or other metadata changed.
 Emitted after every successful `send`. Broadcast to all clients including
 the original sender. Currently only records *outgoing* messages, not
 assistant responses.
+
+### 6.4 `swarm-status`
+
+```json
+{
+  "kind": "event",
+  "type": "swarm-status",
+  "changes": {
+    "jc3": {
+      "agent": "claude",
+      "state": "WORKING",
+      "status": "ahead 0, behind 3"
+    },
+    "jc1": {
+      "agent": "codex",
+      "state": "READY",
+      "status": "up to date"
+    }
+  }
+}
+```
+
+Pushed to clients that have subscribed with `channel: "swarm"` (see §4.7).
+
+Only workers whose state has changed since the last poll are included.
+Each worker entry contains its **complete current state** (as seen by
+`local-status`).
+
+This is the primary mechanism for external orchestrators or managers to
+react to worker progress without polling.
 
 ## 7. Concurrency and ordering
 
