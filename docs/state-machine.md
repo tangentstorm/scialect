@@ -4,55 +4,74 @@ This document defines the formal state machine and collaborative software engine
 
 ---
 
-## 1. State Machine Diagram
+## 1. Concurrent State Diagram (Petri Net Analogy)
+
+Because the worker swarm runs multiple nodes (`jc0` to `jc5`) concurrently while a single manager (`mgr`) handles code reviews and task approvals sequentially, the system is modeled as a **concurrent state machine** (similar to a Petri Net or a UML Activity Diagram with parallel swimlanes).
+
+The diagram below shows the parallel lifecycles of a Worker and the Manager, and highlights how the interactive `local-step` orchestrator coordinates tokens (state changes) between them:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> IDLE : Initial State
-    IDLE --> ASSIGNED : Orchestrator prepares goal & task
-    ASSIGNED --> WORKING : Worker starts coding ('tell-worker assigned')
-    WORKING --> READY : Worker completes code & commits
-    
-    state "Code Review Loop" as CodeReview {
-        READY --> REVIEWING_CODE : Run 'tell-worker review'
-        REVIEWING_CODE --> REVIEWED_DECISION : Mgr completes review
+    state "Worker Lifecycle (Parallel Swarm)" as WorkerLifecycle {
+        [*] --> WorkerIdle : Initial State
+        WorkerIdle --> ASSIGNED : Goal/Task prepared
+        ASSIGNED --> WORKING : Run local-step (Handoff assigned)
+        
+        WORKING --> READY : Code complete & committed (Proving Mode)
+        WORKING --> SUGGEST : Next task plan drafted in task.md (Planning Mode)
+        WORKING --> BLOCKED : Stuck on compiler or gating block
+        
+        READY --> WAITING_REVIEW : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+        SUGGEST --> WAITING_APPROVAL : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+        BLOCKED --> WAITING_TRIAGE : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+        
+        WAITING_REVIEW --> WORKING_PLANNING : Mgr accepts code (Run local-step / accept)
+        WAITING_APPROVAL --> WORKING : Mgr approves task plan (Run local-step / accept)
+        WAITING_TRIAGE --> WORKING : Mgr provides stubs / unblocks (Run local-step / accept)
+        
+        WAITING_REVIEW --> WORKING : Mgr rejects code (Reset to WORKING: starting task)
+        WAITING_APPROVAL --> WORKING_ADJUST : Mgr requests adjustments (Run local-step / adjust)
+        
+        WORKING_PLANNING --> SUGGEST : Draft next step in task.md
+        WORKING_ADJUST --> SUGGEST : Adjust plan in task.md
+        
+        WORKING --> COMPLETE : Entire goal.md module complete with 0 sorries
+        COMPLETE --> [*]
     }
     
-    state "Decision Action" as DecisionBranch {
-        REVIEWED_DECISION --> ACCEPTED : DECISION is ACCEPT
-        REVIEWED_DECISION --> REJECTED : DECISION is REJECT
-    }
-
-    REJECTED --> WORKING : Worker restarts task (Rollback branch & reset task.md)
+    --
     
-    state "Planning Loop" as PlanningLoop {
-        ACCEPTED --> WORKING_PLAN : Run 'tell-worker accept' (Worker enters planning mode)
-        WORKING_PLAN --> SUGGEST : Worker completes task plan in task.md
-        SUGGEST --> REVIEWING_PLAN : Run 'tell-worker approve-task'
-        REVIEWING_PLAN --> REVIEWED_PLAN_DECISION : Mgr completes task plan review
+    state "Manager Lifecycle (Sequential Gatekeeper)" as ManagerLifecycle {
+        [*] --> MgrIdle : Ready for Review
+        MgrIdle --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
+        REVIEWING --> REVIEWED_DECISION : Mgr writes ACCEPT/ADJUST/REJECT to status-line
+        
+        state "Reviewed Decision State" as REVIEWED_DECISION {
+            REVIEWED_ACCEPT : REVIEWED: ACCEPT [worker]
+            REVIEWED_ADJUST : REVIEWED: ADJUST [worker]
+            REVIEWED_REJECT : REVIEWED: REJECT [worker]
+        }
+        
+        REVIEWED_DECISION --> MgrIdle : Run local-step (Processes decision & triggers worker)
     }
-    
-    state "Plan Decision Action" as PlanDecisionBranch {
-        REVIEWED_PLAN_DECISION --> APPROVED : DECISION is ACCEPT
-        REVIEWED_PLAN_DECISION --> ADJUSTED : DECISION is ADJUST
-    }
-
-    APPROVED --> WORKING : Worker starts coding next task
-    ADJUSTED --> ADJUSTING : Run 'tell-worker adjust' (Worker rewrites plan)
-    ADJUSTING --> SUGGEST : Worker resubmits adjusted plan
-    
-    state "Blocker Triage" as BlockerTriage {
-        WORKING --> BLOCKED : Worker hits compiler or gating block
-        BLOCKED --> TRIAGING : Run 'tell-worker unblock'
-        TRIAGING --> UNBLOCKED : Mgr provides workaround / local stubs
-    }
-    
-    UNBLOCKED --> WORKING : Worker resumes coding with stubs
 ```
 
 ---
 
-## 2. Worker Status Specification
+## 2. Why it behaves like a Petri Net & UML Activity Diagram
+
+You are absolutely right to note that a simple state machine doesn't capture the whole story. The swarm behaves fundamentally like a **Petri Net** or a **UML Activity Diagram with Swimlanes**:
+
+1.  **Token-Based Coordination**: 
+    Workers and managers don't block each other's execution threads. Instead, they deposit "tokens" into status files (`.sci/status-line`). For instance, a worker depositing a `READY` token is a transition firing.
+2.  **Concurrency Swimlanes (UML Activity)**:
+    Multiple workers are active in their own "working" swimlanes. The manager acts as an asynchronous synchronization barrier. 
+3.  **The WAITING Buffer State**:
+    To prevent the coordinator from re-triggering the same handoff in subsequent scans, the interactive orchestrator (`local-step`) acts as a transition rule that consumes a worker's `READY`/`SUGGEST`/`BLOCKED` token, moves the worker to a safe `WAITING` buffer, and allocates the `REVIEWING` task to the manager.
+
+---
+
+## 3. Worker Status Specification
 
 A worker reports its current state by writing exactly one line to `.sci/status-line` (and keeping the first line of `task.md` in sync) using the format `[STATUS]: [detail]`:
 
@@ -61,19 +80,21 @@ A worker reports its current state by writing exactly one line to `.sci/status-l
 2.  **`ASSIGNED: [goal_detail]`**
     *   *Meaning*: The manager or orchestrator has prepared a new overall `goal.md` and initial `task.md`, and is about to trigger the worker.
 3.  **`WORKING: [current_step]`**
-    *   *Meaning*: The worker is actively developing and proving the current commit-sized step in `task.md`, or is actively planning their next step.
+    *   *Meaning*: The worker is actively developing and proving the current commit-sized step in `task.md`, or is actively planning/adjusting their next step.
 4.  **`READY: [current_step]`**
     *   *Meaning*: The worker has completed the current `task.md` step, successfully run `lake build`, committed the changes, and is **ready for the manager (`mgr`) to review the code**.
 5.  **`SUGGEST: [proposed_task]`**
     *   *Meaning*: The worker has completed the planning phase, written the proposed next step into `task.md`, and is **ready for the manager (`mgr`) to approve the new task plan**.
 6.  **`BLOCKED: [reason]`**
     *   *Meaning*: The worker is genuinely blocked (cross-group gating or compiler/universe error) and has appended a triage report to the bottom of `task.md`.
-7.  **`COMPLETE: [goal_description]`**
+7.  **`WAITING: [detail]`**
+    *   *Meaning*: The worker has submitted code or plans and is temporarily paused, waiting for the manager to complete the review or triage.
+8.  **`COMPLETE: [goal_description]`**
     *   *Meaning*: The worker has successfully completed their **entire `goal.md` module**, verified that the entire target builds with zero `sorry`s, and is completely done with their overall phase.
 
 ---
 
-## 3. Manager (Reviewer) Status Specification
+## 4. Manager (Reviewer) Status Specification
 
 The manager (`mgr`) is an active participant in the workflow. Its own `.sci/status-line` is polled by the server to coordinate handoffs:
 
@@ -90,9 +111,9 @@ The manager (`mgr`) is an active participant in the workflow. Its own `.sci/stat
 
 ---
 
-## 4. Handoff Commands (`tell-worker`)
+## 5. Handoff Coordination Commands (`local-step` & `tell-worker`)
 
-The orchestrator script `tell-worker` drives all worker/manager handoffs, copying version-controlled guides from `rules/` to `.sci/` during execution:
+The orchestrator script `local-step` drives all worker/manager handoffs, copying version-controlled guides from `rules/` to `.sci/` during execution:
 
 *   **`assigned`** (`tell-worker -- <worker> assigned`):
     *   *Prompt Guide*: `proving-guide.md`
