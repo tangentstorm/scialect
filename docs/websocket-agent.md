@@ -190,8 +190,9 @@ shown by `npm run local-status`).
 
 Currently the only supported value is `channel: "swarm"`.
 
-Reply: `ok` on success. The server will then begin pushing `swarm-status`
-events (see §6.4).
+Reply: `ok` on success. The server immediately sends a `swarm-status` event
+containing the **full current state** (as `changes`), followed by future delta
+updates (see §6.4).
 
 ## 5. Replies
 
@@ -265,8 +266,12 @@ assistant responses.
 
 Pushed to clients that have subscribed with `channel: "swarm"` (see §4.7).
 
-Only workers whose state has changed since the last poll are included.
-Each worker entry contains its **complete current state** (as seen by
+- On first subscribe, the server sends one `swarm-status` event with the
+  **full current state** of all workers (in the `changes` field).
+- Subsequent events contain only deltas (workers that changed since the
+  previous poll).
+
+Each worker entry always contains its **complete current state** (as seen by
 `local-status`).
 
 This is the primary mechanism for external orchestrators or managers to

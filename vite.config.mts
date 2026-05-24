@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import type { ClientRequest } from './src/protocol.mts';
+import { getCurrentSwarmState } from './src/swarm.mts';
 
 interface ScialectGlobal {
   hub?: Hub;
@@ -73,6 +74,21 @@ function scialectPlugin(): Plugin {
                   if (req.kind === 'subscribe' && req.channel === 'swarm') {
                     c.subscriptions.add('swarm');
                     ws.send(JSON.stringify({ id: req.id, kind: 'ok' }));
+
+                    // Send full current state as initial snapshot (not just deltas)
+                    try {
+                      const fullState = getCurrentSwarmState();
+                      if (Object.keys(fullState).length > 0) {
+                        ws.send(JSON.stringify({
+                          kind: 'event',
+                          type: 'swarm-status',
+                          changes: fullState,
+                        }));
+                      }
+                    } catch (err) {
+                      console.error('[swarm] failed to send initial snapshot on subscribe:', err);
+                    }
+
                     return;
                   }
 
