@@ -10,11 +10,20 @@ import {
   DEFAULT_PORT,
   type ClientRequest,
   type ServerFrame,
+  type WorkerState,
 } from './protocol.mts';
 import type { ClientState, DispatchDeps, dispatch as DispatchFn } from './handlers.mts';
 
 const execp = promisify(exec);
 export const SERVER_VERSION = '0.1.0';
+
+let currentHub: Hub | null = null;
+
+export function emitSwarmStatus(changes: Record<string, import('./protocol.mts').WorkerState>) {
+  if (currentHub) {
+    currentHub.emitSwarmStatus(changes);
+  }
+}
 
 /**
  * Bring the Chromium window to the front on macOS. Playwright launches
@@ -42,19 +51,36 @@ export type DispatchLoader = () => Promise<typeof DispatchFn>;
 
 export class Hub {
   private clients = new Set<InternalClient>();
+  private browserWorkers = new Set<InternalClient>(); // connected browser worker clients
   private pageMutex: Promise<void> = Promise.resolve();
   private currentlyOpen: string | null = null;
 
   constructor(
-    private handle: BrowserHandle,
+    handle: BrowserHandle | null,
     private loadDispatch: DispatchLoader,
-  ) {}
+  ) {
+    this.handle = handle;
+    currentHub = this;
+  }
+
+  // Used by the thin orchestrator (5002) to register clients for swarm-status delivery
+  // without going through the full browser attach path.
+  registerClient(c: InternalClient): void {
+    this.clients.add(c);
+  }
+
+  unregisterClient(c: InternalClient): void {
+    this.clients.delete(c);
+  }
 
   attach(ws: WebSocket): void {
-    const c: InternalClient = { ws, activeChat: null };
+    const c: InternalClient = { ws, activeChat: null, subscriptions: new Set() };
     this.clients.add(c);
     this.send(c, { kind: 'event', type: 'hello', serverVersion: SERVER_VERSION });
-    ws.on('close', () => this.clients.delete(c));
+    ws.on('close', () => {
+      this.clients.delete(c);
+      this.browserWorkers.delete(c);
+    });
     ws.on('message', async (data) => {
       let req: ClientRequest;
       try {
@@ -63,6 +89,13 @@ export class Hub {
         this.send(c, { id: '?', kind: 'error', message: `bad json: ${(e as Error).message}` });
         return;
       }
+      if (req.kind === 'register' && req.workerType === 'cloud-browser') {
+        this.browserWorkers.add(c);
+        console.log('[Hub] Registered new cloud-browser worker');
+        this.send(c, { id: req.id, kind: 'ok' });
+        return;
+      }
+
       try {
         const dispatch = await this.loadDispatch();
         this.send(c, await dispatch(this.deps(), c, req));
@@ -105,6 +138,24 @@ export class Hub {
       return await fn();
     } finally {
       release();
+    }
+  }
+
+  /** Send a swarm-status update only to clients subscribed to "swarm". */
+  emitSwarmStatus(changes: Record<string, WorkerState>): void {
+    if (Object.keys(changes).length === 0) return;
+
+    const frame: ServerFrame = {
+      kind: 'event',
+      type: 'swarm-status',
+      changes,
+    };
+    const payload = JSON.stringify(frame);
+
+    for (const c of this.clients) {
+      if (c.subscriptions?.has('swarm') && c.ws.readyState === c.ws.OPEN) {
+        c.ws.send(payload);
+      }
     }
   }
 }

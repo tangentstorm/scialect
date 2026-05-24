@@ -33,7 +33,9 @@ export type ClientRequest =
   | { id: string; kind: 'send'; text: string }
   | { id: string; kind: 'status'; chatId?: string }
   | { id: string; kind: 'latest' }
-  | { id: string; kind: 'ping' };
+  | { id: string; kind: 'ping' }
+  | { id: string; kind: 'subscribe'; channel: string }
+  | { id: string; kind: 'register'; workerType: 'cloud-browser' };
 
 // ---------------- server → client ----------------
 
@@ -49,7 +51,14 @@ export type ServerReply =
 export type ServerEvent =
   | { kind: 'event'; type: 'hello'; serverVersion: string }
   | { kind: 'event'; type: 'chat-update'; chat: ChatRef }
-  | { kind: 'event'; type: 'message'; chatId: string; text: string };
+  | { kind: 'event'; type: 'message'; chatId: string; text: string }
+  | { kind: 'event'; type: 'swarm-status'; changes: Record<string, WorkerState> };
+
+export interface WorkerState {
+  agent: string;
+  state: string;
+  status: string;
+}
 
 export type ServerFrame = ServerReply | ServerEvent;
 

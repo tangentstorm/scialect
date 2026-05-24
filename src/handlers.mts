@@ -20,6 +20,7 @@ import type {
 
 export interface ClientState {
   activeChat: string | null;
+  subscriptions: Set<string>; // e.g. "swarm"
 }
 
 export interface DispatchDeps {
@@ -90,6 +91,12 @@ export async function dispatch(
       const chatId = c.activeChat;
       const text = await deps.withActiveChat(chatId, () => getLatestResponse(deps.page));
       return { id: req.id, kind: 'latest', text };
+    }
+
+    case 'subscribe': {
+      if (!c.subscriptions) c.subscriptions = new Set();
+      c.subscriptions.add(req.channel);
+      return { id: req.id, kind: 'ok' };
     }
   }
 }

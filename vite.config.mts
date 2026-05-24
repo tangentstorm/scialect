@@ -1,26 +1,24 @@
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite';
-import {
-  Hub,
-  attachWebsocketUpgrade,
-  startBrowser,
-  type DispatchLoader,
-} from './src/server.mts';
-import type { BrowserHandle } from './src/browser.mts';
-import type { dispatch as DispatchFn } from './src/handlers.mts';
-import { DevScreen } from './src/dev-screen.mts';
+import { Hub } from './src/server.mts';
+import { CloudRelay } from './src/cloud-relay.mts';
+import { WebSocketServer } from 'ws';
+import type { IncomingMessage } from 'node:http';
+import type { Socket } from 'node:net';
+import type { ClientRequest } from './src/protocol.mts';
 
-/**
- * Long-lived state stashed on globalThis so Vite's plugin reloads (when you
- * edit vite.config.mts itself, for example) don't relaunch Chromium.
- */
 interface ScialectGlobal {
-  handle?: BrowserHandle;
   hub?: Hub;
-  initPromise?: Promise<{ handle: BrowserHandle; hub: Hub }>;
 }
+
 const g = globalThis as typeof globalThis & { __scialect?: ScialectGlobal };
 g.__scialect ??= {};
 const slot = g.__scialect;
+
+interface ThinClient {
+  ws: any;
+  activeChat: string | null;
+  subscriptions: Set<string>;
+}
 
 function scialectPlugin(): Plugin {
   return {
@@ -29,90 +27,84 @@ function scialectPlugin(): Plugin {
     configureServer(server: ViteDevServer) {
       if (!server.httpServer) return;
 
-      // Build a loader that always returns the current dispatch from Vite's
-      // SSR module graph. Edits to handlers.mts / sessions.mts invalidate
-      // the cached version automatically.
-      const loadDispatch: DispatchLoader = async () => {
-        const mod = (await server.ssrLoadModule('/src/handlers.mts')) as {
-          dispatch: typeof DispatchFn;
-        };
-        return mod.dispatch;
-      };
+      const cloudRelay = new CloudRelay('ws://127.0.0.1:5003/ws');
 
       const init = async () => {
-        if (slot.hub) return { handle: slot.handle!, hub: slot.hub };
-        const handle = await startBrowser();
-        const hub = new Hub(handle, loadDispatch);
-        slot.handle = handle;
+        if (slot.hub) return slot.hub;
+        const hub = new Hub(null as any, async () => {
+          const mod = await import('./src/handlers.mts');
+          return mod.dispatch;
+        });
         slot.hub = hub;
-        return { handle, hub };
+        return hub;
       };
 
       slot.initPromise ??= init();
 
       server.httpServer.once('listening', () => {
         slot.initPromise!
-          .then(({ hub }) => {
-            attachWebsocketUpgrade(server.httpServer!, hub, '/ws');
+          .then((hub) => {
+            const wss = new WebSocketServer({ noServer: true });
+
+            server.httpServer!.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+              const url = req.url ?? '';
+              if (!url.split('?')[0]?.endsWith('/ws')) return;
+
+              wss.handleUpgrade(req, socket, head, (ws) => {
+                const c: ThinClient = {
+                  ws,
+                  activeChat: null,
+                  subscriptions: new Set(),
+                };
+
+                hub.registerClient(c as any);
+
+                ws.send(JSON.stringify({ kind: 'event', type: 'hello', serverVersion: '0.1.0' }));
+
+                ws.on('message', async (data: Buffer) => {
+                  let req: ClientRequest;
+                  try {
+                    req = JSON.parse(data.toString()) as ClientRequest;
+                  } catch (e) {
+                    ws.send(JSON.stringify({ id: '?', kind: 'error', message: 'bad json' }));
+                    return;
+                  }
+
+                  if (req.kind === 'subscribe' && req.channel === 'swarm') {
+                    c.subscriptions.add('swarm');
+                    ws.send(JSON.stringify({ id: req.id, kind: 'ok' }));
+                    return;
+                  }
+
+                  const reply = await cloudRelay.forward(req);
+                  if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify(reply));
+                  }
+                });
+
+                ws.on('close', () => {
+                  hub.unregisterClient(c as any);
+                });
+              });
+            });
+
             const addr = server.httpServer!.address();
             const port = typeof addr === 'object' && addr ? addr.port : '?';
+            console.log(`[scialect] ws://127.0.0.1:${port}/ws ready (thin, relaying cloud to 5003)`);
 
-            const screen = new DevScreen();
-
-            // Redirect all stdout/stderr into the buffer's log region
-            const origStdoutWrite = process.stdout.write.bind(process.stdout);
-            const origStderrWrite = process.stderr.write.bind(process.stderr);
-
-            const logToScreen = (chunk: any) => {
-              const str = typeof chunk === 'string' ? chunk : chunk.toString();
-              // Split on newlines but keep simple for first version
-              str.split(/\r?\n/).forEach(line => {
-                if (line.trim()) screen.log(line);
-              });
-            };
-
-            process.stdout.write = ((chunk: any, ...args: any[]) => {
-              logToScreen(chunk);
-              return origStdoutWrite(chunk, ...args);
-            }) as any;
-
-            process.stderr.write = ((chunk: any, ...args: any[]) => {
-              logToScreen(chunk);
-              return origStderrWrite(chunk, ...args);
-            }) as any;
-
-            // Initial messages
-            screen.log(`[scialect] ws://127.0.0.1:${port}/ws ready`);
-            screen.log('Dev server started. Logs and swarm status will appear below.');
-
-            // TODO: Wire real swarm status here
-            // For now, update status region periodically with a placeholder
-            setInterval(() => {
-              const now = new Date().toLocaleTimeString();
-              screen.setStatus([
-                `Swarm Status (placeholder) - ${now}`,
-                '────────────────────────────────────',
-                'jc0: up to date',
-                'jc1: up to date',
-                'jc2: behind 3',
-                '(real data coming next)'
-              ]);
-            }, 3000);
-
-            // Also render on any log (already happens in screen.log)
+            // Real swarm polling — starts immediately, every 2s.
+            // Also prints live table to stdout for tmux watching.
+            import('./src/swarm.mts').then(async ({ pollSwarmOnce }) => {
+              await pollSwarmOnce().catch(console.error);
+              setInterval(() => {
+                pollSwarmOnce().catch(console.error);
+              }, 2000);
+            });
           })
           .catch((err) => {
-            slot.initPromise = undefined; // allow retry on next reload
-            console.error('[scialect] browser startup failed:', err?.message ?? err);
+            slot.initPromise = undefined;
+            console.error('[scialect] init failed:', err?.message ?? err);
           });
-      });
-
-      // Surface hot-reloads of the handler module so it's obvious when a
-      // save took effect.
-      server.watcher.on('change', (file) => {
-        if (file.endsWith('handlers.mts') || file.endsWith('sessions.mts')) {
-          console.log(`[scialect] reloaded ${file.split('/').pop()}`);
-        }
       });
     },
   };
