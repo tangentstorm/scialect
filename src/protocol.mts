@@ -53,4 +53,4 @@ export type ServerEvent =
 
 export type ServerFrame = ServerReply | ServerEvent;
 
-export const DEFAULT_PORT = 7878;
+export const DEFAULT_PORT = 5002;

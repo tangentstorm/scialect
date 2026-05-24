@@ -3,7 +3,7 @@
  * MCP (stdio) server that exposes scialect's cloud sessions as tools.
  *
  * Sits in front of the existing scialect ws server (default
- * ws://127.0.0.1:7878/ws). Each tool call translates to one or more ws
+ * ws://127.0.0.1:5002/ws). Each tool call translates to one or more ws
  * round-trips. The user must have `npm run server` (or `npm run dev`)
  * running separately.
  */

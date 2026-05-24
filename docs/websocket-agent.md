@@ -9,7 +9,7 @@ with that file, the file wins.
 
 ## 1. Connection
 
-- Default endpoint: `ws://127.0.0.1:7878/ws`.
+- Default endpoint: `ws://127.0.0.1:5002/ws`.
 - Override with `SCIALECT_URL=ws://host:port/path`.
 - The same endpoint is exposed by both the standalone server (`npm run server`)
   and the Vite dev plugin (`npm run dev`); the latter hot-reloads
@@ -256,7 +256,7 @@ assistant responses.
 ```ts
 import { randomUUID } from "node:crypto";
 
-const ws = new WebSocket(process.env.SCIALECT_URL ?? "ws://127.0.0.1:7878/ws");
+const ws = new WebSocket(process.env.SCIALECT_URL ?? "ws://127.0.0.1:5002/ws");
 const pending = new Map<string, (r: unknown) => void>();
 
 ws.addEventListener("message", (ev) => {

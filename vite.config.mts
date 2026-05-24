@@ -7,6 +7,7 @@ import {
 } from './src/server.mts';
 import type { BrowserHandle } from './src/browser.mts';
 import type { dispatch as DispatchFn } from './src/handlers.mts';
+import { DevScreen } from './src/dev-screen.mts';
 
 /**
  * Long-lived state stashed on globalThis so Vite's plugin reloads (when you
@@ -55,7 +56,50 @@ function scialectPlugin(): Plugin {
             attachWebsocketUpgrade(server.httpServer!, hub, '/ws');
             const addr = server.httpServer!.address();
             const port = typeof addr === 'object' && addr ? addr.port : '?';
-            console.log(`[scialect] ws://127.0.0.1:${port}/ws ready`);
+
+            const screen = new DevScreen();
+
+            // Redirect all stdout/stderr into the buffer's log region
+            const origStdoutWrite = process.stdout.write.bind(process.stdout);
+            const origStderrWrite = process.stderr.write.bind(process.stderr);
+
+            const logToScreen = (chunk: any) => {
+              const str = typeof chunk === 'string' ? chunk : chunk.toString();
+              // Split on newlines but keep simple for first version
+              str.split(/\r?\n/).forEach(line => {
+                if (line.trim()) screen.log(line);
+              });
+            };
+
+            process.stdout.write = ((chunk: any, ...args: any[]) => {
+              logToScreen(chunk);
+              return origStdoutWrite(chunk, ...args);
+            }) as any;
+
+            process.stderr.write = ((chunk: any, ...args: any[]) => {
+              logToScreen(chunk);
+              return origStderrWrite(chunk, ...args);
+            }) as any;
+
+            // Initial messages
+            screen.log(`[scialect] ws://127.0.0.1:${port}/ws ready`);
+            screen.log('Dev server started. Logs and swarm status will appear below.');
+
+            // TODO: Wire real swarm status here
+            // For now, update status region periodically with a placeholder
+            setInterval(() => {
+              const now = new Date().toLocaleTimeString();
+              screen.setStatus([
+                `Swarm Status (placeholder) - ${now}`,
+                '────────────────────────────────────',
+                'jc0: up to date',
+                'jc1: up to date',
+                'jc2: behind 3',
+                '(real data coming next)'
+              ]);
+            }, 3000);
+
+            // Also render on any log (already happens in screen.log)
           })
           .catch((err) => {
             slot.initPromise = undefined; // allow retry on next reload
@@ -77,7 +121,7 @@ function scialectPlugin(): Plugin {
 export default defineConfig({
   server: {
     host: '127.0.0.1',
-    port: 7878,
+    port: 5002,
     strictPort: true,
   },
   plugins: [scialectPlugin()],
