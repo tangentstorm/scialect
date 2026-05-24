@@ -12,47 +12,48 @@ The diagram below shows the parallel lifecycles of a Worker and the Manager, and
 
 ```mermaid
 stateDiagram-v2
-    state "Worker Lifecycle (Parallel Swarm)" as WorkerLifecycle {
-        [*] --> WorkerIdle : Initial State
-        WorkerIdle --> ASSIGNED : Goal/Task prepared
-        ASSIGNED --> WORKING : Run local-step (Handoff assigned)
-        
-        WORKING --> READY : Code complete & committed (Proving Mode)
-        WORKING --> SUGGEST : Next task plan drafted in task.md (Planning Mode)
-        WORKING --> BLOCKED : Stuck on compiler or gating block
-        
-        READY --> WAITING_REVIEW : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
-        SUGGEST --> WAITING_APPROVAL : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
-        BLOCKED --> WAITING_TRIAGE : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
-        
-        WAITING_REVIEW --> WORKING_PLANNING : Mgr accepts code (Run local-step / accept)
-        WAITING_APPROVAL --> WORKING : Mgr approves task plan (Run local-step / accept)
-        WAITING_TRIAGE --> WORKING : Mgr provides stubs / unblocks (Run local-step / accept)
-        
-        WAITING_REVIEW --> WORKING : Mgr rejects code (Reset to WORKING: starting task)
-        WAITING_APPROVAL --> WORKING_ADJUST : Mgr requests adjustments (Run local-step / adjust)
-        
-        WORKING_PLANNING --> SUGGEST : Draft next step in task.md
-        WORKING_ADJUST --> SUGGEST : Adjust plan in task.md
-        
-        WORKING --> COMPLETE : Entire goal.md module complete with 0 sorries
-        COMPLETE --> [*]
-    }
-    
-    --
-    
-    state "Manager Lifecycle (Sequential Gatekeeper)" as ManagerLifecycle {
-        [*] --> MgrIdle : Ready for Review
-        MgrIdle --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
-        REVIEWING --> REVIEWED_DECISION : Mgr writes ACCEPT/ADJUST/REJECT to status-line
-        
-        state "Reviewed Decision State" as REVIEWED_DECISION {
-            REVIEWED_ACCEPT : REVIEWED: ACCEPT [worker]
-            REVIEWED_ADJUST : REVIEWED: ADJUST [worker]
-            REVIEWED_REJECT : REVIEWED: REJECT [worker]
+    [*] --> Swarm
+    state Swarm {
+        state "Worker Lifecycle (Parallel Swarm)" as WorkerLifecycle {
+            [*] --> WorkerIdle : Initial State
+            WorkerIdle --> ASSIGNED : Goal/Task prepared
+            ASSIGNED --> WORKING : Run local-step (Handoff assigned)
+            
+            WORKING --> READY : Code complete & committed (Proving Mode)
+            WORKING --> SUGGEST : Next task plan drafted in task.md (Planning Mode)
+            WORKING --> BLOCKED : Stuck on compiler or gating block
+            
+            READY --> WAITING_REVIEW : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+            SUGGEST --> WAITING_APPROVAL : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+            BLOCKED --> WAITING_TRIAGE : Run local-step (jcx -> WAITING, mgr -> REVIEWING)
+            
+            WAITING_REVIEW --> WORKING_PLANNING : Mgr accepts code (Run local-step / accept)
+            WAITING_APPROVAL --> WORKING : Mgr approves task plan (Run local-step / accept)
+            WAITING_TRIAGE --> WORKING : Mgr provides stubs / unblocks (Run local-step / accept)
+            
+            WAITING_REVIEW --> WORKING : Mgr rejects code (Reset to WORKING: starting task)
+            WAITING_APPROVAL --> WORKING_ADJUST : Mgr requests adjustments (Run local-step / adjust)
+            
+            WORKING_PLANNING --> SUGGEST : Draft next step in task.md
+            WORKING_ADJUST --> SUGGEST : Adjust plan in task.md
+            
+            WORKING --> COMPLETE : Entire goal.md module complete with 0 sorries
+            COMPLETE --> [*]
         }
-        
-        REVIEWED_DECISION --> MgrIdle : Run local-step (Processes decision & triggers worker)
+        --
+        state "Manager Lifecycle (Sequential Gatekeeper)" as ManagerLifecycle {
+            [*] --> MgrIdle : Ready for Review
+            MgrIdle --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
+            REVIEWING --> REVIEWED_DECISION : Mgr writes ACCEPT/ADJUST/REJECT to status-line
+            
+            state "Reviewed Decision State" as REVIEWED_DECISION {
+                REVIEWED_ACCEPT : REVIEWED: ACCEPT [worker]
+                REVIEWED_ADJUST : REVIEWED: ADJUST [worker]
+                REVIEWED_REJECT : REVIEWED: REJECT [worker]
+            }
+            
+            REVIEWED_DECISION --> MgrIdle : Run local-step (Processes decision & triggers worker)
+        }
     }
 ```
 
