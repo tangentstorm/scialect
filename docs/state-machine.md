@@ -15,8 +15,8 @@ stateDiagram-v2
     [*] --> Swarm
     state Swarm {
         state "Worker Lifecycle (Parallel Swarm)" as WorkerLifecycle {
-            [*] --> WorkerIdle : Initial State
-            WorkerIdle --> ASSIGNED : Goal/Task prepared
+            [*] --> IDLE_WKR : Initial State
+            IDLE_WKR --> ASSIGNED : Goal/Task prepared
             ASSIGNED --> WORKING : Run local-step (Handoff assigned)
             
             WORKING --> READY : Code complete & committed (Proving Mode)
@@ -42,8 +42,8 @@ stateDiagram-v2
         }
         --
         state "Manager Lifecycle (Sequential Gatekeeper)" as ManagerLifecycle {
-            [*] --> MgrIdle : Ready for Review
-            MgrIdle --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
+            [*] --> IDLE_MGR : Ready for Review
+            IDLE_MGR --> REVIEWING : Triggered by worker READY/SUGGEST/BLOCKED
             REVIEWING --> REVIEWED_DECISION : Mgr writes ACCEPT/ADJUST/REJECT to status-line
             
             state "Reviewed Decision State" as REVIEWED_DECISION {
@@ -52,7 +52,7 @@ stateDiagram-v2
                 REVIEWED_REJECT : REVIEWED: REJECT [worker]
             }
             
-            REVIEWED_DECISION --> MgrIdle : Run local-step (Processes decision & triggers worker)
+            REVIEWED_DECISION --> IDLE_MGR : Run local-step (Processes decision & triggers worker)
         }
     }
 ```
