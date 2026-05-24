@@ -121,25 +121,32 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     process.exit(1);
   }
 
-  const goalPath = resolve(configuredDir, 'goal.md');
+  const sciDir = resolve(configuredDir, '.sci');
+  const goalPath = resolve(sciDir, 'goal.md');
+  const taskPath = resolve(sciDir, 'task.md');
+
   if (!existsSync(goalPath)) {
-    console.error(`${w.id}: goal.md does not exist`);
+    console.error(`${w.id}: .sci/goal.md does not exist`);
+    process.exit(1);
+  }
+  if (!existsSync(taskPath)) {
+    console.error(`${w.id}: .sci/task.md does not exist`);
     process.exit(1);
   }
 
   const goalContent = readFileSync(goalPath, 'utf8');
 
   // Remove old result
-  const resultPath = resolve(configuredDir, 'result.md');
+  const resultPath = resolve(sciDir, 'result.md');
   if (existsSync(resultPath)) {
     unlinkSync(resultPath);
   }
 
-  // Set swarm status
-  const statusPath = resolve(configuredDir, '.swarm-status');
+  // Set status-line inside .sci/
+  const statusPath = resolve(sciDir, 'status-line');
   writeFileSync(statusPath, `ASSIGNED: ${goalContent.split('\n')[0].slice(0, 80)}\n`, 'utf8');
 
-  console.log(`${w.id}: files prepared (ASSIGNED, goal.md present, result.md cleared)`);
+  console.log(`${w.id}: files prepared (ASSIGNED, .sci/goal.md + task.md, result cleared)`);
 
   // Now talk to the live agent in the pane
   const detected = await detectAgent(w.session, w.window);
@@ -171,12 +178,12 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
       await sleep(500);
       await tmux.sendKeys(target, 'Enter', false);
       await sleep(10000);
-      await tmux.sendKeys(target, '/goal follow the instructions in goal.md', false);
+      await tmux.sendKeys(target, '/goal follow the instructions in .sci/task.md (see .sci/goal.md for context)', false);
       await sleep(500);
       await tmux.sendKeys(target, 'Enter', false);
     } else if (agent === 'gemini') {
       // Basic handoff for Gemini (agy). Adjust as needed.
-      await tmux.sendKeys(target, 'Follow the instructions in goal.md', false);
+      await tmux.sendKeys(target, 'Follow the instructions in .sci/task.md (see .sci/goal.md for context)', false);
       await sleep(500);
       await tmux.sendKeys(target, 'Enter', false);
     }
@@ -197,7 +204,7 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
-  const reviewMessage = `${targetWorkerId} has stopped. Please review its result.md and recent commits and decide whether to ACCEPT, REJECT, or ADJUST.`;
+  const reviewMessage = `${targetWorkerId} has stopped. Please review its .sci/result.md and recent commits and decide whether to ACCEPT, REJECT, or ADJUST.`;
 
   let tui: any = null;
   let message = '';
@@ -240,7 +247,7 @@ async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
-  const adjustMessage = `Please adjust the goal.md prompt for ${targetWorkerId}.`;
+  const adjustMessage = `Please adjust the .sci/task.md for ${targetWorkerId}. (Do not change .sci/goal.md)`;
 
   let tui: any = null;
 

@@ -164,8 +164,8 @@ async function main() {
       branch = res.stdout.trim() || '—';
     } catch {}
 
-    const goalPath = resolve(configuredDir, 'goal.md');
-    const resultPath = resolve(configuredDir, 'result.md');
+    const goalPath = resolve(configuredDir, '.sci', 'goal.md');
+    const resultPath = resolve(configuredDir, '.sci', 'result.md');
     const goalM = getMtime(goalPath);
     const resultM = getMtime(resultPath);
     let state = formatState(goalM, resultM);
@@ -174,10 +174,10 @@ async function main() {
 
     let statusDisplay = branch + statusSuffix;
 
-    // Prefer .swarm-status if present
-    const swarmStatusPath = resolve(configuredDir, '.swarm-status');
+    // Prefer .sci/status-line if present
+    const statusLinePath = resolve(configuredDir, '.sci', 'status-line');
     try {
-      const content = readFileSync(swarmStatusPath, 'utf8').trim();
+      const content = readFileSync(statusLinePath, 'utf8').trim();
       if (content) {
         const firstLine = content.split('\n')[0].trim();
         if (firstLine) {
@@ -194,7 +194,7 @@ async function main() {
         }
       }
     } catch {
-      // no .swarm-status → keep computed state + branch
+      // no .sci/status-line → keep computed state + branch
     }
 
     let agentDisplay = detectedAgent || 'unknown';
