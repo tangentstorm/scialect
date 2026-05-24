@@ -12,7 +12,6 @@ interface WorkerConfig {
   dir: string;
   session: string;
   window: string;
-  expected_agent?: string;
 }
 
 interface AgentRule {
@@ -197,10 +196,7 @@ async function main() {
       // no .sci/status-line → keep computed state + branch
     }
 
-    let agentDisplay = detectedAgent || 'unknown';
-    if (w.expected_agent && detectedAgent && detectedAgent !== w.expected_agent) {
-      agentDisplay += '!!';
-    }
+    const agentDisplay = detectedAgent || 'unknown';
 
     rows.push([w.id, agentDisplay, state, statusDisplay]);
   }

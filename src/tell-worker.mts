@@ -13,7 +13,6 @@ interface WorkerConfig {
   dir: string;
   session: string;
   window: string;
-  expected_agent?: string;
 }
 
 function expandHome(p: string): string {
@@ -150,7 +149,7 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
 
   // Now talk to the live agent in the pane
   const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || w.expected_agent || 'claude').toLowerCase();
+  const agent = (detected || 'claude').toLowerCase();
 
   let tui: any = null;
 
@@ -200,7 +199,7 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   const targetPane = `${manager.session}:${manager.window}.0`;
 
   const detected = await detectAgent(manager.session, manager.window);
-  const agent = (detected || manager.expected_agent || 'unknown').toLowerCase();
+  const agent = (detected || 'unknown').toLowerCase();
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
@@ -243,7 +242,7 @@ async function doAdjust(manager: WorkerConfig, targetWorkerId: string) {
   const targetPane = `${manager.session}:${manager.window}.0`;
 
   const detected = await detectAgent(manager.session, manager.window);
-  const agent = (detected || manager.expected_agent || 'unknown').toLowerCase();
+  const agent = (detected || 'unknown').toLowerCase();
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
