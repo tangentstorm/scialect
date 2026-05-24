@@ -15,8 +15,8 @@ stateDiagram-v2
     [*] --> Swarm
     state Swarm {
         state "Worker Lifecycle (Parallel Swarm)" as WorkerLifecycle {
-            [*] --> IDLE_WKR : Initial State
-            IDLE_WKR --> ASSIGNED : Goal/Task prepared
+            [*] --> IDLE : Initial State
+            IDLE --> ASSIGNED : Goal/Task prepared
             ASSIGNED --> WORKING : Run local-step (Handoff assigned)
             
             WORKING --> READY : Code complete & committed (Proving Mode)
