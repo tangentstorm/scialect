@@ -25,7 +25,7 @@
     "check-up-to-date": "bin/check-up-to-date",
     "gh-status": "tsx src/gh-status.mts",
     "tell-worker": "tsx src/tell-worker.mts",
-    "step": "tsx src/step.mts",
+    "local-step": "tsx src/local-step.mts",
     "sync-assignees": "tsx src/sync-assignees.mts",
     "mcp": "tsx src/mcp-server.mts",
     "install:browser": "playwright install chromium"
