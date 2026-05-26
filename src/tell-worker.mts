@@ -74,7 +74,7 @@ async function detectAgent(session: string, window: string): Promise<string | nu
   const windowTarget = `${session}:${window}`;
 
   try {
-    const res = await tmux.listPanes(windowTarget, '#{pane_index} #{pane_pid} #{pane_current_command} #{pane_current_path} "#{pane_title}"');
+    const res = await tmux.listPanes(windowTarget, '#{pane_index} #{pane_tty} #{pane_current_command} "#{pane_title}"');
     if (res.code !== 0 || !res.stdout.trim()) return null;
 
     const lines = res.stdout.trim().split('\n');
@@ -82,29 +82,29 @@ async function detectAgent(session: string, window: string): Promise<string | nu
     
     // Focus on the first/main pane for now
     const first = lines[0].split(' ');
-    if (first.length < 5) return null;
+    if (first.length < 4) return null;
 
-    const pid = first[1];
+    const tty = first[1];
     const command = first[2];
-    if (!pid || !command) return null;
+    if (!tty || !command) return null;
 
     const titleMatch = lines[0].match(/"([^"]*)"$/);
     const title = titleMatch ? (titleMatch[1] || '') : '';
 
-    // Get process info
-    const proc = spawnSync('ps', ['-p', pid, '-o', 'comm=,args='], { encoding: 'utf8' });
+    // Get all process info on the pane's TTY
+    const proc = spawnSync('ps', ['-t', tty, '-o', 'comm=,args='], { encoding: 'utf8' });
     let args = '';
+    let allCommands = '';
     if (proc.status === 0 && proc.stdout) {
-      const stdoutStr = proc.stdout.toString();
-      const space = stdoutStr.indexOf(' ');
-      args = space > 0 ? stdoutStr.slice(space + 1) : '';
+      args = proc.stdout.toString(); // contains all comm and args
+      allCommands = args; // for simple includes matching
     }
 
     const cmdBase = command.split('/').pop() || command;
 
     for (const rule of rules) {
       const m = rule.match;
-      if (m.command && cmdBase !== m.command) continue;
+      if (m.command && cmdBase !== m.command && !allCommands.includes(m.command)) continue;
       if (m.args_contains && !args.includes(m.args_contains)) continue;
       if (m.title_contains && !title.includes(m.title_contains)) continue;
       return rule.name;
@@ -148,21 +148,22 @@ function propagateGuide(targetDir: string, guideName: string): boolean {
   return false; // Content did not change
 }
 
-function checkManagerIdle(manager: WorkerConfig) {
-  const configuredDir = expandHome(manager.dir);
+function checkIdle(w: WorkerConfig) {
+  const configuredDir = expandHome(w.dir);
   const sciDir = resolve(configuredDir, '.sci');
   const statusPath = resolve(sciDir, 'status-line');
 
   if (existsSync(statusPath)) {
     const statusContent = readFileSync(statusPath, 'utf8').trim();
     if (statusContent && !statusContent.startsWith('IDLE')) {
-      console.error(`${manager.id}: Manager status is not IDLE (currently: '${statusContent}'). Cannot hand off new task.`);
+      console.error(`${w.id}: Status is not IDLE (currently: '${statusContent}'). Cannot hand off new task.`);
       process.exit(1);
     }
   }
 }
 
 async function doAssigned(w: WorkerConfig, dir: string, target: string) {
+  checkIdle(w);
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);
@@ -337,7 +338,7 @@ async function doAdjust(w: WorkerConfig, dir: string, target: string) {
 }
 
 async function doReview(manager: WorkerConfig, targetWorkerId: string) {
-  checkManagerIdle(manager);
+  checkIdle(manager);
   await assertTmuxWindowExists(manager.session, manager.window, manager.id);
 
   const configuredDir = expandHome(manager.dir);
@@ -386,7 +387,7 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
 }
 
 async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
-  checkManagerIdle(manager);
+  checkIdle(manager);
   await assertTmuxWindowExists(manager.session, manager.window, manager.id);
 
   const configuredDir = expandHome(manager.dir);
@@ -435,7 +436,7 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
 }
 
 async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
-  checkManagerIdle(manager);
+  checkIdle(manager);
   await assertTmuxWindowExists(manager.session, manager.window, manager.id);
 
   const configuredDir = expandHome(manager.dir);
