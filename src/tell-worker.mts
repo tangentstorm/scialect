@@ -196,9 +196,9 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
 
   // Set status-line inside .sci/
   const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: starting task\n`, 'utf8');
+  writeFileSync(statusPath, `ASSIGNED\n`, 'utf8');
 
-  console.log(`${w.id}: files prepared (WORKING, .sci/goal.md + task.md, result cleared, guide propagated)`);
+  console.log(`${w.id}: files prepared (ASSIGNED, .sci/goal.md + plan.md + task.md, result cleared, guide propagated)`);
 
   // Now talk to the live agent in the pane
   const detected = await detectAgent(w.session, w.window);
@@ -224,7 +224,7 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     console.log(`${w.id}: clean prompt detected. Sending handoff...`);
 
     const changeNotice = changed ? ' IMPORTANT: .sci/proving-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `/goal follow the instructions in .sci/task.md (see .sci/goal.md for context). Please refer to .sci/proving-guide.md for detailed instructions.${changeNotice}`;
+    const handoffMsg = `/goal You have been assigned a new task. Please review .sci/goal.md, .sci/plan.md, and .sci/task.md. Then, follow the instructions in .sci/proving-guide.md to acknowledge the assignment and begin work.${changeNotice}`;
 
     if (agent === 'claude' || agent.includes('codex')) {
       await tmux.sendKeys(target, '/new', false);

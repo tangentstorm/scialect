@@ -7,13 +7,15 @@ This document defines the standards and rules you **must** follow when working a
 ## 1. Two Operational Modes
 
 ### A. Proving Mode (Coding a Task)
-When you are assigned a code task in `task.md`, your status is `WORKING`. You must:
-1.  Develop the exact proof/definition in the target Lean file.
-2.  Follow the **scaffolding strategy** (no general math theory, narrow local stubs).
-3.  Run the narrowest target build: `lake build Jacobian.Layer.File`.
-4.  Run `lake build Jacobian.Solution` to verify no warnings except "uses sorry" were introduced.
-5.  Commit your changes using your primary committer identity and appropriate `Co-authored-by` credits (see `/rules/commit-guide.md`).
-6.  Once committed, set your status-line in `.sci/status-line` to `READY: [commit_description]` to alert the manager (`mgr`) for code review.
+When you are assigned a new task by the manager, your status will be set to `ASSIGNED`. You must:
+1.  Read `.sci/goal.md`, `.sci/plan.md`, and `.sci/task.md` to understand your assignment.
+2.  Acknowledge the task by updating `.sci/status-line` (and the first line of `task.md`) to `WORKING: [step]` (e.g., `WORKING: Prove lemma X`).
+3.  Develop the exact proof/definition in the target Lean file.
+4.  Follow the **scaffolding strategy** (no general math theory, narrow local stubs).
+5.  Run the narrowest target build: `lake build Jacobian.Layer.File`.
+6.  Run `lake build Jacobian.Solution` to verify no warnings except "uses sorry" were introduced.
+7.  Commit your changes using your primary committer identity and appropriate `Co-authored-by` credits (see `/rules/commit-guide.md`).
+8.  Once committed, set your status-line in `.sci/status-line` to `READY: [commit_description]` to alert the manager (`mgr`) for code review.
 
 ### B. Planning Mode (Proposing the Next Task)
 When you are notified of an acceptance (`tell-worker accept`), your status is `WORKING: plan next step`. You must:
@@ -33,6 +35,7 @@ You must only claim a task is complete (marking it `READY:`) when:
 
 ## 3. Status Reporting
 You must update `.sci/status-line` (and the first line of `task.md`) using exactly one of the following formats:
+*   `ASSIGNED` — Set by the manager. You must acknowledge the task by changing this to `WORKING: [step]`.
 *   `WORKING: [step]` — Actively proving the code task.
 *   `WORKING: plan next step` — Actively drafting the next task plan in `task.md`.
 *   `READY: [step]` — Completed coding the task, committed, ready for review.
