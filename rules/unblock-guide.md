@@ -10,7 +10,7 @@ Your goal is to inspect the worker's blocker report and help them resume work by
 ---
 
 ## 2. Step-by-Step Triage Procedure
-1.  **Read Blocker Triage Report**: Locate the triage report at the bottom of the worker's `.sci/task.md`. Understand the exact compiler error or cross-group gate.
+1.  **Navigate & Read Blocker Triage Report**: Change directory to the worker's project directory (provided in your prompt). Locate the triage report at the bottom of the worker's `.sci/task.md`. Understand the exact compiler error or cross-group gate.
 2.  **Evaluate Block Validity**:
     *   *If Gated by Upstream*: Check if the target theorem is waiting for a lower-layer Group (e.g. Group 4 waiting for Group 1).
     *   *If Lean Compiler Error*: Verify if there is a universe level mismatch or typeclass elaboration panic.

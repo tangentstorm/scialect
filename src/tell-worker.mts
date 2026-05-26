@@ -357,8 +357,15 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
+  const targetWorker = workers.find(x => x.id === targetWorkerId);
+  if (!targetWorker) {
+    console.error(`${manager.id}: Unknown target worker: ${targetWorkerId}`);
+    process.exit(1);
+  }
+  const targetDir = expandHome(targetWorker.dir);
+
   const changeNotice = changed ? ' IMPORTANT: .sci/review-guide.md has just been updated with new instructions; please read it carefully.' : '';
-  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Refer to .sci/review-guide.md for detailed instructions on conducting reviews and setting your status.${changeNotice}`;
+  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Change your directory to ${targetDir} and inspect the files there. Refer to .sci/review-guide.md for detailed instructions on conducting reviews and setting your status.${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {
@@ -406,8 +413,15 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
+  const targetWorker = workers.find(x => x.id === targetWorkerId);
+  if (!targetWorker) {
+    console.error(`${manager.id}: Unknown target worker: ${targetWorkerId}`);
+    process.exit(1);
+  }
+  const targetDir = expandHome(targetWorker.dir);
+
   const changeNotice = changed ? ' IMPORTANT: .sci/approve-task-guide.md has just been updated with new instructions; please read it carefully.' : '';
-  const approveMessage = `Please review and approve the proposed next task plan in .sci/task.md for ${targetWorkerId}. Refer to .sci/approve-task-guide.md for detailed instructions.${changeNotice}`;
+  const approveMessage = `Please review and approve the proposed next task plan in .sci/task.md for ${targetWorkerId}. Change your directory to ${targetDir} and inspect the files there. Refer to .sci/approve-task-guide.md for detailed instructions.${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {
@@ -455,8 +469,15 @@ async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: detected agent = ${agent}`);
 
+  const targetWorker = workers.find(x => x.id === targetWorkerId);
+  if (!targetWorker) {
+    console.error(`${manager.id}: Unknown target worker: ${targetWorkerId}`);
+    process.exit(1);
+  }
+  const targetDir = expandHome(targetWorker.dir);
+
   const changeNotice = changed ? ' IMPORTANT: .sci/unblock-guide.md has just been updated with new instructions; please read it carefully.' : '';
-  const unblockMessage = `Please triage the blocker for ${targetWorkerId} and help unblock them. Refer to .sci/unblock-guide.md for detailed instructions.${changeNotice}`;
+  const unblockMessage = `Please triage the blocker reported by ${targetWorkerId}. Change your directory to ${targetDir} and inspect the task.md file there. Refer to .sci/unblock-guide.md for detailed instructions.${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {

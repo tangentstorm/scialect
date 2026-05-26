@@ -13,7 +13,7 @@ Your goal is to inspect the worker's proposed next commit-sized step in `task.md
 ---
 
 ## 2. Step-by-Step Approval Procedure
-1.  **Read Task Proposal**: Locate the proposed next step at the top of the worker's `.sci/task.md` (under the `SUGGEST: ...` status).
+1.  **Navigate & Read Task Proposal**: Change directory to the worker's project directory (provided in your prompt). Locate the proposed next step at the top of the worker's `.sci/task.md` (under the `SUGGEST: ...` status).
 2.  **Check plan.md**: Re-read `.sci/plan.md` to confirm this is the correct next logical milestone.
 3.  **Evaluate Scope**: Confirm that the target file and target proof are precisely scoped.
 
