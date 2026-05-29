@@ -24,12 +24,12 @@ The project uses "typed scaffolding" where complex types are often aliased to si
 - **Scripted Check:** Use `lake build` to check compilation, but also visually audit the `git diff` for changes to `def`s.
 - **Axiom Check:** Use `#print axioms [theorem_name]` to ensure the proof hasn't introduced unwanted shortcuts or hidden dependencies.
 
-## 9. Build & Cache Management
+## 5. Build & Cache Management
 Project builds can be extremely slow if Mathlib is recompiled from scratch.
 - **Guideline:** Explicitly state: "If you need to build the project to verify your work, you MUST run `lake exe cache get` first to retrieve the pre-built Mathlib binaries."
 - **Path Portability:** Do **NOT** include absolute paths or "Working directory" lines in prompts. Agents should discover the project root automatically or use relative paths.
 
-## 5. Explicit Anti-Cheat Instructions
+## 6. Explicit Anti-Cheat Instructions
 Add this block to all high-effort formalization prompts:
 > **ANTI-CHEAT CLAUSE:**
 > - You must **NOT** change the definitions of the mathematical objects provided in the scaffolding.
@@ -37,17 +37,17 @@ Add this block to all high-effort formalization prompts:
 > - If you need to build, run `lake exe cache get` first.
 > - If you find a definition is insufficient for a real proof, STOP and report the issue rather than providing a degenerate solution.
 
-## 6. Upgrading Scaffolding (Type Separation)
+## 7. Upgrading Scaffolding (Type Separation)
 If an agent discovers that a proof is trivialized by an alias (e.g., `abbrev Foo := Bar`), the human/orchestrator should upgrade the scaffolding before the next attempt.
 - **Method:** Replace the `abbrev` with a `noncomputable def` and a distinct wrapper (e.g., `ULift`).
 - **Goal:** This forces the agent to use the provided equivalence (`≃ₗ`) or bridge lemmas to transport properties, rather than relying on definitional equality.
 
-## 7. Deep Context Missions
+## 8. Deep Context Missions
 Skeletal prompts lead to skeletal thinking.
 - **Guideline:** Provide the FULL mathematical reasoning from the Blueprint, including dependencies and proof sketches.
 - **Format:** Copy-paste the exact LaTeX environment (lemma + proof) into the prompt or a linked `.md` plan.
 
-## 8. Top-Down Refinement Strategy
+## 9. Top-Down Refinement Strategy
 Finish the project by working "Leafward" from the goal.
 1. **Scaffold:** Define the high-level theorem and `sorry` the proof.
 2. **Breakdown:** Decompose the `sorry` into 3-5 named lemmas (stubs).
@@ -55,13 +55,13 @@ Finish the project by working "Leafward" from the goal.
 4. **Recurse:** Assign the new stubs as missions to specialized agents.
 5. **Promote:** Once a stub is proven, move its implementation from the "Infrastructure/Generated" files into the production modules.
 
-## 9. Worker Assignment and Handoff Protocol
+## 10. Worker Assignment and Handoff Protocol
 
 When assigning (or re-assigning) work to a worker, the manager **must** perform the following steps in order:
 
 1. **Delete the worker’s old `.sci/result.md`** (if it exists). This ensures the worker starts fresh and does not carry over stale status.
 2. **Overwrite the worker’s `goal.md`** with the new goal. The new `goal.md` **must** contain a clear reference to `.sci/proving-guide.md` (see top of this document).
-3. **Create or update `.swarm-status`** in the worker’s directory with exactly one line in the following format:
+3. **Create or update `.sci/status-line`** in the worker’s directory with exactly one line in the following format:
 
    ```
    ASSIGNED: <branch-name>

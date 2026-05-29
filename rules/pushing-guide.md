@@ -12,7 +12,7 @@ Before pushing or merging, confirm:
 
 - the accepted Lean changes are committed;
 - `.sci/result.md` accurately describes the accepted work;
-- `.swarm-status` starts with `READY:` and is under 50 characters;
+- `.sci/status-line` starts with `READY:` and is under 50 characters;
 - there are no unrelated scratch files staged for commit.
 
 ## 2. Rebase Onto Main
