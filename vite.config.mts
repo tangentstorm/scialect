@@ -92,6 +92,24 @@ function scialectPlugin(): Plugin {
                     return;
                   }
 
+                  if (req.kind === 'swarm-status') {
+                    try {
+                      const changes = getCurrentSwarmState();
+                      ws.send(JSON.stringify({
+                        id: req.id,
+                        kind: 'swarm-status',
+                        changes,
+                      }));
+                    } catch (err) {
+                      ws.send(JSON.stringify({
+                        id: req.id,
+                        kind: 'error',
+                        message: 'failed to get swarm status',
+                      }));
+                    }
+                    return;
+                  }
+
                   const reply = await cloudRelay.forward(req);
                   if (ws.readyState === ws.OPEN) {
                     ws.send(JSON.stringify(reply));

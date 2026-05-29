@@ -194,6 +194,27 @@ Reply: `ok` on success. The server immediately sends a `swarm-status` event
 containing the **full current state** (as `changes`), followed by future delta
 updates (see §6.4).
 
+### 4.8 `swarm-status` (request)
+
+```json
+{ "id": "<uuid>", "kind": "swarm-status" }
+```
+
+Returns the current full swarm state (same shape as the `swarm-status` event).
+This can be called at any time (does not require prior subscription).
+
+Reply example:
+```json
+{
+  "id": "<uuid>",
+  "kind": "swarm-status",
+  "changes": {
+    "jc0": { "agent": "codex", "state": "READY", "status": "up to date" },
+    "jc3": { "agent": "claude", "state": "WORKING", "status": "ahead 0, behind 3" }
+  }
+}
+```
+
 ## 5. Replies
 
 | `kind`      | extra fields                                | meaning |
@@ -203,9 +224,10 @@ updates (see §6.4).
 | `use`       | `active: ChatRef`                           | response to `use` |
 | `status`    | `chat: ChatRef`                             | response to `status` |
 | `latest`    | `text: string \| null`                      | response to `latest` |
-| `pong`      | —                                           | response to `ping` |
-| `subscribe` | —                                           | response to `subscribe` |
-| `error`     | `message: string`                           | failure of any request |
+| `pong`         | —                                           | response to `ping` |
+| `subscribe`    | —                                           | response to `subscribe` |
+| `swarm-status` | `changes: Record<string, WorkerState>`      | response to `swarm-status` request (full current state) |
+| `error`        | `message: string`                           | failure of any request |
 
 Every reply (including `error`) carries the originating request's `id`,
 except the parse-failure case noted in §2 where `id: "?"`.

@@ -17,6 +17,7 @@ import type {
   ServerFrame,
   ServerReply,
 } from './protocol.mts';
+import { getCurrentSwarmState } from './swarm.mts';
 
 export interface ClientState {
   activeChat: string | null;
@@ -97,6 +98,11 @@ export async function dispatch(
       if (!c.subscriptions) c.subscriptions = new Set();
       c.subscriptions.add(req.channel);
       return { id: req.id, kind: 'ok' };
+    }
+
+    case 'swarm-status': {
+      const changes = getCurrentSwarmState();
+      return { id: req.id, kind: 'swarm-status', changes };
     }
   }
 }

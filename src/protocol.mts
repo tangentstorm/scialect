@@ -35,6 +35,7 @@ export type ClientRequest =
   | { id: string; kind: 'latest' }
   | { id: string; kind: 'ping' }
   | { id: string; kind: 'subscribe'; channel: string }
+  | { id: string; kind: 'swarm-status' }
   | { id: string; kind: 'register'; workerType: 'cloud-browser' };
 
 // ---------------- server → client ----------------
@@ -46,6 +47,7 @@ export type ServerReply =
   | { id: string; kind: 'status'; chat: ChatRef }
   | { id: string; kind: 'latest'; text: string | null }
   | { id: string; kind: 'pong' }
+  | { id: string; kind: 'swarm-status'; changes: Record<string, WorkerState> }
   | { id: string; kind: 'error'; message: string };
 
 export type ServerEvent =
