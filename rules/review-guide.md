@@ -20,7 +20,7 @@ Your goal is to inspect the worker's changes and make a deterministic quality de
 ---
 
 ## 3. Decision & Status Reporting
-Once your review is complete, you must write a brief review summary to `result.md` (or output it in your chat response) and set your **own** `.sci/status-line` to exactly one of the following:
+Once your review is complete, you must write a brief review summary to `.sci/result.md` (or output it in your chat response) and set your **own** `.sci/status-line` to exactly one of the following:
 
 *   **`REVIEWED: ACCEPT [worker]`**
     *   *When*: The code is correct, compiles cleanly, and is committed correctly.

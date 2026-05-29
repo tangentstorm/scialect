@@ -116,7 +116,7 @@ The provider must expose the local mathematical data needed by downstream
 proofs. It must not simply package all downstream conclusions in an opaque
 record.
 
-In result.md, report:
+In .sci/result.md, report:
 1. the original target;
 2. whether it is now direct-sorry-free;
 3. the new provider theorem, if any;
@@ -224,7 +224,7 @@ visible progress and prevents the graph from accumulating avoidable sorries.
 
 ## 8. Result Report Standard
 
-Every `result.md` should answer these questions:
+Every `.sci/result.md` should answer these questions:
 
 - What was the target theorem?
 - Is the target theorem direct-sorry-free now?
