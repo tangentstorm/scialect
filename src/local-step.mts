@@ -68,8 +68,8 @@ async function main() {
 
   const proposals: ActionProposal[] = [];
 
-  // Case 1: Manager has a pending decision (REVIEWED: ACCEPT/ADJUST/REJECT)
-  const reviewedMatch = mgrStatus.match(/^REVIEWED:\s*(ACCEPT|ADJUST|REJECT)\s+([A-Za-z0-9_-]+)/i);
+  // Case 1: Manager has a pending decision (REVIEWED: ACCEPT/ADJUST/REJECT/UNBLOCKED)
+  const reviewedMatch = mgrStatus.match(/^REVIEWED:\s*(ACCEPT|ADJUST|REJECT|UNBLOCKED)\s+([A-Za-z0-9_-]+)/i);
   if (reviewedMatch) {
     const decision = reviewedMatch[1].toUpperCase();
     const targetId = reviewedMatch[2];
@@ -77,18 +77,34 @@ async function main() {
 
     if (targetWorker) {
       if (decision === 'ACCEPT') {
-        proposals.push({
-          description: `[Decision] Manager accepted ${targetId}'s work. Transition ${targetId} to planning and reset manager to IDLE.`,
-          execute: async () => {
-            console.log(`Resetting manager status to IDLE...`);
-            writeStatus(mgr.dir, 'IDLE: ...');
-            console.log(`Running tell-worker accept for ${targetId}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'accept'], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
+        const tStatus = getRawStatus(targetWorker.dir);
+        if (tStatus.toUpperCase().includes('PLAN APPROVAL')) {
+          proposals.push({
+            description: `[Decision] Manager approved ${targetId}'s task plan. Transition ${targetId} to execution and reset manager to IDLE.`,
+            execute: async () => {
+              console.log(`Resetting manager status to IDLE...`);
+              writeStatus(mgr.dir, 'IDLE: ...');
+              console.log(`Running tell-worker plan-approved for ${targetId}...`);
+              const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'plan-approved'], { stdio: 'inherit' });
+              if (res.status !== 0) {
+                console.error(`Command failed with exit code ${res.status}`);
+              }
             }
-          }
-        });
+          });
+        } else {
+          proposals.push({
+            description: `[Decision] Manager accepted ${targetId}'s code work. Transition ${targetId} to planning and reset manager to IDLE.`,
+            execute: async () => {
+              console.log(`Resetting manager status to IDLE...`);
+              writeStatus(mgr.dir, 'IDLE: ...');
+              console.log(`Running tell-worker accept for ${targetId}...`);
+              const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'accept'], { stdio: 'inherit' });
+              if (res.status !== 0) {
+                console.error(`Command failed with exit code ${res.status}`);
+              }
+            }
+          });
+        }
       } else if (decision === 'ADJUST') {
         proposals.push({
           description: `[Decision] Manager requested adjustments for ${targetId}'s plan. Transition ${targetId} to adjusting and reset manager to IDLE.`,
@@ -113,6 +129,19 @@ async function main() {
             console.log(`⚠️  NOTE: Please manually revert/rollback git changes in ${targetId}'s repository if needed.`);
           }
         });
+      } else if (decision === 'UNBLOCKED') {
+        proposals.push({
+          description: `[Decision] Manager resolved blocker for ${targetId}. Transition ${targetId} back to WORKING and reset manager to IDLE.`,
+          execute: async () => {
+            console.log(`Resetting manager status to IDLE...`);
+            writeStatus(mgr.dir, 'IDLE: ...');
+            console.log(`Running tell-worker unblocked for ${targetId}...`);
+            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'unblocked'], { stdio: 'inherit' });
+            if (res.status !== 0) {
+              console.error(`Command failed with exit code ${res.status}`);
+            }
+          }
+        });
       }
     }
   }
@@ -123,14 +152,14 @@ async function main() {
     for (const w of ordinaryWorkers) {
       const wStatus = getRawStatus(w.dir);
       
-      if (wStatus.toUpperCase().startsWith('READY')) {
+      if (wStatus.toUpperCase().startsWith('READY') || wStatus.toUpperCase().startsWith('STEP-DONE')) {
         proposals.push({
           description: `[Handoff] Worker ${w.id} is READY. Transition ${w.id} to AWAITING and hand off code review to manager.`,
           execute: async () => {
             console.log(`Setting ${w.id} status to AWAITING: code review...`);
             writeStatus(w.dir, 'AWAITING: code review');
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
-            writeStatus(mgr.dir, `REVIEWING: ${w.id}`);
+            // tell-worker will check if manager is IDLE and set it to REVIEWING
             console.log(`Running tell-worker review for ${w.id}...`);
             const res = spawnSync('npm', ['run', 'tell-worker', '--', 'mgr', 'review', w.id], { stdio: 'inherit' });
             if (res.status !== 0) {
@@ -145,7 +174,7 @@ async function main() {
             console.log(`Setting ${w.id} status to AWAITING: task plan approval...`);
             writeStatus(w.dir, 'AWAITING: task plan approval');
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
-            writeStatus(mgr.dir, `REVIEWING: ${w.id}`);
+            // tell-worker will check if manager is IDLE and set it to REVIEWING
             console.log(`Running tell-worker approve-task for ${w.id}...`);
             const res = spawnSync('npm', ['run', 'tell-worker', '--', 'mgr', 'approve-task', w.id], { stdio: 'inherit' });
             if (res.status !== 0) {
@@ -160,15 +189,63 @@ async function main() {
             console.log(`Setting ${w.id} status to AWAITING: blocker triage...`);
             writeStatus(w.dir, 'AWAITING: blocker triage');
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
-            writeStatus(mgr.dir, `REVIEWING: ${w.id}`);
+            // tell-worker will check if manager is IDLE and set it to REVIEWING
             console.log(`Running tell-worker unblock for ${w.id}...`);
             const res = spawnSync('npm', ['run', 'tell-worker', '--', 'mgr', 'unblock', w.id], { stdio: 'inherit' });
             if (res.status !== 0) {
               console.error(`Command failed with exit code ${res.status}`);
             }
           }
+      } else if (wStatus.toUpperCase().startsWith('PR-AWAIT')) {
+        proposals.push({
+          description: `[CI] Worker ${w.id} is PR-AWAIT. Check if CI is green and merge PR.`,
+          execute: async () => {
+            console.log(`Checking PR checks for ${w.id}...`);
+            const checkRes = spawnSync('gh', ['pr', 'checks'], { cwd: expandHome(w.dir), encoding: 'utf8' });
+            
+            if (checkRes.status === 0) {
+              console.log(checkRes.stdout);
+              console.log(`\n✅ CI passed! Merging PR...`);
+              const mergeRes = spawnSync('gh', ['pr', 'merge', '--merge', '--delete-branch'], { cwd: expandHome(w.dir), stdio: 'inherit' });
+              if (mergeRes.status === 0) {
+                console.log(`Setting status to MERGED.`);
+                writeStatus(w.dir, 'MERGED: integrated successfully');
+              } else {
+                console.error(`Failed to merge PR.`);
+              }
+            } else {
+              console.log(checkRes.stdout || checkRes.stderr);
+              console.log(`\n⏳ CI is pending or failed (exit code ${checkRes.status}). Will check again later.`);
+            }
+          }
         });
       }
+    }
+  }
+
+  // Check if any worker is currently REBASING or PR-AWAIT
+  const activeIntegration = ordinaryWorkers.find(w => {
+    const s = getRawStatus(w.dir).toUpperCase();
+    return s.startsWith('WORKING: REBASE') || s.startsWith('PR-AWAIT');
+  });
+
+  if (!activeIntegration) {
+    // If no active integration, propose starting the next HELD worker
+    const heldWorkers = ordinaryWorkers.filter(w => getRawStatus(w.dir).toUpperCase().startsWith('HELD'));
+    // Sort by id to ensure jc0 -> jc1 -> jc2 -> jc3 -> jc4
+    heldWorkers.sort((a, b) => a.id.localeCompare(b.id));
+    if (heldWorkers.length > 0) {
+      const nextW = heldWorkers[0];
+      proposals.push({
+        description: `[Integrate] Integration pipeline is empty. Start rebasing ${nextW.id} onto origin/main.`,
+        execute: async () => {
+          console.log(`Starting rebase sequence for ${nextW.id}...`);
+          const res = spawnSync('npm', ['run', 'tell-worker', '--', nextW.id, 'rebase', 'origin/main'], { stdio: 'inherit' });
+          if (res.status !== 0) {
+            console.error(`Command failed with exit code ${res.status}`);
+          }
+        }
+      });
     }
   }
 
@@ -178,6 +255,7 @@ async function main() {
     for (const w of ordinaryWorkers) {
       const wStatus = getRawStatus(w.dir);
       if (wStatus.toUpperCase().startsWith('READY') || 
+          wStatus.toUpperCase().startsWith('STEP-DONE') || 
           wStatus.toUpperCase().startsWith('SUGGEST') || 
           wStatus.toUpperCase().startsWith('BLOCKED')) {
         busyWorkers.push({ id: w.id, status: wStatus });
@@ -207,7 +285,7 @@ async function main() {
       console.log(`  ${prop.description}\n`);
       
       const answer = await rl.question('Proceed with this action? (y/N): ');
-      if (answer.trim().toLowerCase() === 'y') {
+      if (answer.trim().toLowerCase() === 'y' || answer.trim() === '1') {
         console.log('\nExecuting action...');
         await prop.execute();
         console.log('Done!');
