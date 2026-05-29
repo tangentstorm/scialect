@@ -4,7 +4,7 @@ This guide contains strategies to ensure that AI agents (Claude, Codex, Gemini) 
 
 > **Important:** Every `goal.md` you write for a worker **must** contain the following line near the top:
 >
-> > Read and follow `ref/proving-guide.md` for all rules regarding verification, `.sci/result.md`, `sorries.jsonl`, status reporting, and expected behavior.
+> > Read and follow `.sci/proving-guide.md` for all rules regarding verification, `.sci/result.md`, `sorries.jsonl`, status reporting, and expected behavior.
 
 ## 1. Ensuring Definition Integrity
 Agents may attempt to simplify a `def` to make a subsequent `theorem` easier to prove.
@@ -60,7 +60,7 @@ Finish the project by working "Leafward" from the goal.
 When assigning (or re-assigning) work to a worker, the manager **must** perform the following steps in order:
 
 1. **Delete the worker’s old `.sci/result.md`** (if it exists). This ensures the worker starts fresh and does not carry over stale status.
-2. **Overwrite the worker’s `goal.md`** with the new goal. The new `goal.md` **must** contain a clear reference to `ref/proving-guide.md` (see top of this document).
+2. **Overwrite the worker’s `goal.md`** with the new goal. The new `goal.md` **must** contain a clear reference to `.sci/proving-guide.md` (see top of this document).
 3. **Create or update `.swarm-status`** in the worker’s directory with exactly one line in the following format:
 
    ```

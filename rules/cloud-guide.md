@@ -16,7 +16,7 @@ This guide documents the protocol for working with Claude Code cloud workers in 
    - **Difficulty Routing:** Assign harder, structurally complex issues to **Claude**, and route easier, isolated, or smaller issues to **Aristotle**.
    - **Aristotle Limits:** You MUST ensure that **EXACTLY 15 Aristotle jobs** are in-flight or in the queue at all times. Continuously refill the queue to maintain this count.
    - **Anti-Cheating Standards:** Instruct workers strictly to maintain high anti-cheating standards. They must *never* change foundational definitions, trivialize mathematical objects, or delete high-integrity scaffolding (like `ULift` wrappers) to artificially pass theorems.
-   - **Prompt Quality:** Ensure all prompts strictly follow the established `ref/prompting-guide.md`. The initial prompt MUST explicitly instruct Claude to rename its own session to match the Job ID prefix (e.g., "Please rename this session to '1469. Prove skeletal homology quotient identity'").
+   - **Prompt Quality:** Ensure all prompts strictly follow the established `.sci/prompting-guide.md`. The initial prompt MUST explicitly instruct Claude to rename its own session to match the Job ID prefix (e.g., "Please rename this session to '1469. Prove skeletal homology quotient identity'").
    - **Existing Prompts:** Before generating new prompts for an assignment, *always* check the `prompts/` directory to see if an unprocessed prompt already exists for that task, and dispatch it first.
    
 2. **Session Management (Claude):**
