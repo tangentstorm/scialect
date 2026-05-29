@@ -120,13 +120,15 @@ async function main() {
         });
       } else if (decision === 'REJECT') {
         proposals.push({
-          description: `[Decision] Manager REJECTED ${targetId}'s work. Reset manager to IDLE and transition ${targetId} back to WORKING.`,
+          description: `[Decision] Manager REJECTED ${targetId}'s work. Transition ${targetId} back to WORKING and reset manager to IDLE.`,
           execute: async () => {
             console.log(`Resetting manager status to IDLE...`);
             writeStatus(mgr.dir, 'IDLE: ...');
-            console.log(`Setting ${targetId} status to WORKING...`);
-            writeStatus(targetWorker.dir, 'WORKING: starting task');
-            console.log(`⚠️  NOTE: Please manually revert/rollback git changes in ${targetId}'s repository if needed.`);
+            console.log(`Running tell-worker reject for ${targetId}...`);
+            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'reject'], { stdio: 'inherit' });
+            if (res.status !== 0) {
+              console.error(`Command failed with exit code ${res.status}`);
+            }
           }
         });
       } else if (decision === 'UNBLOCKED') {
@@ -196,6 +198,7 @@ async function main() {
               console.error(`Command failed with exit code ${res.status}`);
             }
           }
+        });
       } else if (wStatus.toUpperCase().startsWith('PR-AWAIT')) {
         proposals.push({
           description: `[CI] Worker ${w.id} is PR-AWAIT. Check if CI is green and merge PR.`,

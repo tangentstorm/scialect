@@ -421,6 +421,51 @@ async function doUnblocked(w: WorkerConfig, dir: string, target: string) {
   }
 }
 
+async function doReject(w: WorkerConfig, dir: string, target: string) {
+  await assertTmuxWindowExists(w.session, w.window, w.id);
+
+  const configuredDir = expandHome(dir);
+  const sciDir = resolve(configuredDir, '.sci');
+
+  const changed = propagateGuide(configuredDir, 'adjust-guide.md');
+
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `WORKING: fix rejected code\n`, 'utf8');
+
+  console.log(`${w.id}: files prepared (WORKING: fix rejected code, guide propagated)`);
+
+  const detected = await detectAgent(w.session, w.window);
+  const agent = (detected || 'claude').toLowerCase();
+
+  let tui: any = null;
+  if (agent.includes('codex')) {
+    tui = new CodexTui(target);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(target);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(target);
+  }
+
+  if (tui) {
+    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
+    if (!await tui.ensurePromptIsEmpty()) {
+      console.error(`${w.id}: never reached empty prompt`);
+      process.exit(1);
+    }
+
+    const changeNotice = changed ? ' IMPORTANT: .sci/adjust-guide.md has just been updated with new instructions; please read it carefully.' : '';
+    const handoffMsg = `The manager has REJECTED your code! Please read the manager's review in .sci/result.md, revert any bad commits if necessary, fix your code, and submit it again. Remember to set your status back to READY when finished.${changeNotice}`;
+
+    await tmux.sendKeys(target, handoffMsg, false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
+
+    console.log(`${w.id}: reject handoff sent to ${agent}.`);
+  } else {
+    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
+  }
+}
+
 async function doRebase(w: WorkerConfig, dir: string, target: string, branch: string) {
   checkIdle(w);
   await assertTmuxWindowExists(w.session, w.window, w.id);
@@ -674,6 +719,8 @@ async function main() {
   } else if (action === 'rebase') {
     const branch = args[0] || 'origin/main';
     await doRebase(w, w.dir, target, branch);
+  } else if (action === 'reject') {
+    await doReject(w, w.dir, target);
   } else if (action === 'review') {
     const targetWorkerId = args[0];
     if (!targetWorkerId) {
