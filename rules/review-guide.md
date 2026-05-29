@@ -13,7 +13,7 @@ Your goal is to inspect the worker's changes and make a deterministic quality de
 ---
 
 ## 2. Step-by-Step Review Procedure
-1.  **Navigate & Inspect Diff**: Change directory to the worker's project directory (provided in your prompt). Read `.sci/task.md` and `.sci/goal.md` to see what was assigned. Inspect the git diff of the worker's branch to audit the code changes.
+1.  **Navigate & Inspect Diff**: Change directory to the worker's project directory (provided in your prompt). Read `.sci/task.md` and `.sci/goal.md` to see what was assigned. Explicitly verify that a commit exists (e.g., via `git log`), and inspect the changes using `git diff main..HEAD` to audit the code changes.
 2.  **Verify Build**: Confirm that the target builds cleanly by running `lake build` on the worker's narrow target.
 3.  **Check Axioms**: Optionally run `#print axioms <lemma>` to ensure the worker hasn't sneaked in unauthorized stubs.
 
