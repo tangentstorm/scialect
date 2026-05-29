@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as git from './git.mts';
 import * as tmux from './tmux.mts';
 
@@ -142,6 +142,17 @@ function getGitStatusSummary(cwd: string): string {
   }
 }
 
+function getScreenHash(session: string, window: string): string {
+  try {
+    const windowTarget = `${session}:${window}.0`;
+    const res = spawnSync('tmux', ['capture-pane', '-p', '-t', windowTarget], { encoding: 'utf8' });
+    if (res.status === 0 && res.stdout) {
+      return createHash('sha256').update(res.stdout).digest('hex');
+    }
+  } catch {}
+  return '';
+}
+
 async function collectSwarmRows(): Promise<string[][]> {
   const workersPath = resolve(process.cwd(), 'workers.jsonl');
   const lines = readFileSync(workersPath, 'utf8')
@@ -199,10 +210,48 @@ async function collectSwarmRows(): Promise<string[][]> {
 
       const agentDisplay = detectedAgent || 'unknown';
 
-      rows.push([w.id, agentDisplay, state, statusDisplay]);
+      let health = 'OK';
+      if (w.id === 'mgr') {
+        if (state === 'REVIEWING') {
+          const mtime = getMtime(statusLinePath);
+          if (mtime && Date.now() - mtime.getTime() > 5 * 60 * 1000) { // 5 minutes
+            health = 'STUCK';
+          }
+        }
+      } else {
+        const statePath = resolve(configuredDir, '.sci', 'screen-state.json');
+        if (state.startsWith('WORKING')) {
+          const currentHash = getScreenHash(w.session, w.window);
+          const now = Date.now();
+          if (currentHash) {
+            try {
+              if (existsSync(statePath)) {
+                const screenState = JSON.parse(readFileSync(statePath, 'utf8'));
+                if (screenState.hash === currentHash) {
+                  if (now - screenState.timestamp > 10 * 60 * 1000) { // 10 minutes
+                    health = 'STUCK';
+                  }
+                } else {
+                  writeFileSync(statePath, JSON.stringify({ hash: currentHash, timestamp: now }), 'utf8');
+                }
+              } else {
+                writeFileSync(statePath, JSON.stringify({ hash: currentHash, timestamp: now }), 'utf8');
+              }
+            } catch {
+              writeFileSync(statePath, JSON.stringify({ hash: currentHash, timestamp: now }), 'utf8');
+            }
+          }
+        } else {
+          if (existsSync(statePath)) {
+            try { unlinkSync(statePath); } catch {}
+          }
+        }
+      }
+
+      rows.push([w.id, agentDisplay, state, health, statusDisplay]);
     } catch (err) {
       // Per-worker failure → ERROR state (registers as a change)
-      rows.push([w.id, 'unknown', 'ERROR', String(err).slice(0, 80)]);
+      rows.push([w.id, 'unknown', 'ERROR', 'ERR', String(err).slice(0, 80)]);
     }
   }
 
@@ -210,7 +259,7 @@ async function collectSwarmRows(): Promise<string[][]> {
 }
 
 function printSwarmTable(rows: string[][]) {
-  const headers = ['id', 'agent', 'state', 'status'];
+  const headers = ['id', 'agent', 'state', 'health', 'status'];
   const all = [headers, ...rows];
 
   const widths = headers.map((_, i) =>
