@@ -71,8 +71,8 @@ async function main() {
   // Case 1: Manager has a pending decision (REVIEWED: ACCEPT/ADJUST/REJECT/UNBLOCKED)
   const reviewedMatch = mgrStatus.match(/^REVIEWED:\s*(ACCEPT|ADJUST|REJECT|UNBLOCKED)\s+([A-Za-z0-9_-]+)/i);
   if (reviewedMatch) {
-    const decision = reviewedMatch[1].toUpperCase();
-    const targetId = reviewedMatch[2];
+    const decision = reviewedMatch[1]!.toUpperCase();
+    const targetId = reviewedMatch[2]!;
     const targetWorker = ordinaryWorkers.find(w => w.id === targetId);
 
     if (targetWorker) {
@@ -238,7 +238,7 @@ async function main() {
     // Sort by id to ensure jc0 -> jc1 -> jc2 -> jc3 -> jc4
     heldWorkers.sort((a, b) => a.id.localeCompare(b.id));
     if (heldWorkers.length > 0) {
-      const nextW = heldWorkers[0];
+      const nextW = heldWorkers[0]!;
       proposals.push({
         description: `[Integrate] Integration pipeline is empty. Start rebasing ${nextW.id} onto origin/main.`,
         execute: async () => {
@@ -283,7 +283,7 @@ async function main() {
 
   try {
     if (proposals.length === 1) {
-      const prop = proposals[0];
+      const prop = proposals[0]!;
       console.log(`PROPOSED ACTION:`);
       console.log(`  ${prop.description}\n`);
       
@@ -309,7 +309,7 @@ async function main() {
       } else {
         const num = parseInt(choice, 10);
         if (num >= 1 && num <= proposals.length) {
-          const prop = proposals[num - 1];
+          const prop = proposals[num - 1]!;
           console.log(`\nExecuting action ${num}...`);
           await prop.execute();
           console.log('Done!');

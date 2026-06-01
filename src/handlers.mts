@@ -104,5 +104,15 @@ export async function dispatch(
       const changes = getCurrentSwarmState();
       return { id: req.id, kind: 'swarm-status', changes };
     }
+
+    case 'register':
+      // 'register' is intercepted by the Hub before dispatch; reaching here means
+      // it slipped past, so report it rather than silently returning undefined.
+      return { id: req.id, kind: 'error', message: 'register must be handled by the hub' };
+
+    default: {
+      const _exhaustive: never = req;
+      return { id: (_exhaustive as ClientRequest).id, kind: 'error', message: `unknown request kind` };
+    }
   }
 }

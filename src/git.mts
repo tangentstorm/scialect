@@ -10,8 +10,8 @@ export interface GitResult {
 }
 
 type GitOptions = {
-  cwd?: string;
-  check?: boolean;
+  cwd?: string | undefined;
+  check?: boolean | undefined;
 };
 
 async function runGitCmd(args: string[], opts: GitOptions = {}): Promise<GitResult> {

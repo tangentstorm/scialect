@@ -99,7 +99,7 @@ async function findAgentInWindow(
     const panes: PaneInfo[] = res.stdout.trim().split('\n').map(line => {
       const [index, pid, command, path, ...titleParts] = line.split(' ');
       const title = titleParts.join(' ').replace(/^"|"$/g, '');
-      return { index, pid, command, path, title };
+      return { index: index ?? '', pid: pid ?? '', command: command ?? '', path: path ?? '', title };
     });
 
     for (const pane of panes) {
@@ -115,7 +115,7 @@ async function findAgentInWindow(
     }
 
     if (panes.length > 0) {
-      return { detectedAgent: null, liveCwd: panes[0].path };
+      return { detectedAgent: null, liveCwd: panes[0]!.path };
     }
   } catch {}
   return { detectedAgent: null, liveCwd: null };
@@ -190,12 +190,12 @@ async function collectSwarmRows(): Promise<string[][]> {
       try {
         const content = readFileSync(statusLinePath, 'utf8').trim();
         if (content) {
-          const firstLine = content.split('\n')[0].trim();
+          const firstLine = content.split('\n')[0]!.trim();
           if (firstLine) {
             // Extract keyword + remainder
             const match = firstLine.match(/^([A-Za-z0-9_-]+)[:\s]?(.*)$/);
             if (match) {
-              const keyword = match[1];
+              const keyword = match[1]!;
               const rest = match[2] ? match[2].trim() : '';
               state = keyword.toUpperCase();
               statusDisplay = rest ? (rest + statusSuffix) : (keyword + statusSuffix);
@@ -267,7 +267,7 @@ function printSwarmTable(rows: string[][]) {
   );
 
   const line = (row: string[]) =>
-    row.map((cell, i) => (cell ?? '').padEnd(widths[i])).join(' | ');
+    row.map((cell, i) => (cell ?? '').padEnd(widths[i] ?? 0)).join(' | ');
 
   console.log(line(headers));
   console.log(widths.map(w => '-'.repeat(w)).join('-+-'));

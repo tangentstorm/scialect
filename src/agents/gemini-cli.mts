@@ -18,8 +18,9 @@ export class GeminiTui extends TuiAgent {
     // Find the two lowest lines that contain long horizontal bars
     const barLines: number[] = [];
     for (let i = 0; i < lines.length; i++) {
-      const stripped = lines[i].replace(/─/g, '');
-      if (lines[i].includes('─') && stripped.trim().length < 15) {
+      const line = lines[i]!;
+      const stripped = line.replace(/─/g, '');
+      if (line.includes('─') && stripped.trim().length < 15) {
         barLines.push(i);
       }
     }
@@ -27,9 +28,10 @@ export class GeminiTui extends TuiAgent {
     if (barLines.length < 2) {
       // Fallback: last line containing > with nothing after it
       for (let i = lines.length - 1; i >= 0; i--) {
-        const pos = lines[i].indexOf('>');
+        const line = lines[i]!;
+        const pos = line.indexOf('>');
         if (pos !== -1) {
-          const after = lines[i].slice(pos + 1);
+          const after = line.slice(pos + 1);
           return after.trim() === '';
         }
       }
@@ -38,13 +40,14 @@ export class GeminiTui extends TuiAgent {
 
     // The input prompt is between the last two bars.
     // We want the *lowest* (most recent) '>' in that region.
-    const bottomBar = barLines[barLines.length - 1];
-    const secondBottom = barLines[barLines.length - 2];
+    const bottomBar = barLines[barLines.length - 1]!;
+    const secondBottom = barLines[barLines.length - 2]!;
 
     let promptLine = '';
     for (let i = secondBottom + 1; i < bottomBar; i++) {
-      if (lines[i].includes('>')) {
-        promptLine = lines[i];   // keep the last one we see (lowest)
+      const line = lines[i]!;
+      if (line.includes('>')) {
+        promptLine = line;   // keep the last one we see (lowest)
       }
     }
 

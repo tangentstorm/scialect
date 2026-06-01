@@ -20,9 +20,10 @@ export class CodexTui extends TuiAgent {
     let promptLine = '';
 
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].includes('›')) {
+      const line = lines[i]!;
+      if (line.includes('›')) {
         promptLineIndex = i;
-        promptLine = lines[i];
+        promptLine = line;
         break;
       }
     }

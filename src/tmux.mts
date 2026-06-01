@@ -50,8 +50,12 @@ export async function sendKeys(target: string, keys: string, enter = true): Prom
 
 export async function runCommand(command: string): Promise<CommandResult> {
   const parts = command.trim().split(/\s+/);
+  const file = parts[0];
+  if (!file) {
+    return { stdout: '', stderr: 'empty command', code: 1 };
+  }
   try {
-    const { stdout, stderr } = await execFileAsync(parts[0], parts.slice(1), {
+    const { stdout, stderr } = await execFileAsync(file, parts.slice(1), {
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
     });

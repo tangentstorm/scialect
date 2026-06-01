@@ -54,6 +54,7 @@ export class Hub {
   private browserWorkers = new Set<InternalClient>(); // connected browser worker clients
   private pageMutex: Promise<void> = Promise.resolve();
   private currentlyOpen: string | null = null;
+  private handle: BrowserHandle | null;
 
   constructor(
     handle: BrowserHandle | null,
@@ -61,6 +62,12 @@ export class Hub {
   ) {
     this.handle = handle;
     currentHub = this;
+  }
+
+  /** Browser handle, asserted non-null on the full browser-attach path. */
+  private requireHandle(): BrowserHandle {
+    if (!this.handle) throw new Error('Hub has no browser handle (browserless orchestrator mode)');
+    return this.handle;
   }
 
   // Used by the thin orchestrator (5002) to register clients for swarm-status delivery
@@ -107,7 +114,7 @@ export class Hub {
 
   private deps(): DispatchDeps {
     return {
-      page: this.handle.page,
+      page: this.requireHandle().page,
       withActiveChat: (chatId, fn) => this.withActiveChat(chatId, fn),
       broadcast: (frame) => this.broadcast(frame),
     };
@@ -132,7 +139,7 @@ export class Hub {
     try {
       await prev;
       if (this.currentlyOpen !== chatId) {
-        await openSession(this.handle.page, chatId);
+        await openSession(this.requireHandle().page, chatId);
         this.currentlyOpen = chatId;
       }
       return await fn();

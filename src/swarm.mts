@@ -35,7 +35,8 @@ export async function pollSwarmOnce() {
 
   const newState: Record<string, WorkerState> = {};
   for (const [id, agent, state, status] of rows) {
-    newState[id] = { agent, state, status };
+    if (id === undefined) continue;
+    newState[id] = { agent: agent ?? '', state: state ?? '', status: status ?? '' };
   }
 
   const changes = updateSwarmState(newState);
