@@ -24,7 +24,10 @@ Once your review is complete, you must write a brief review summary to the **wor
 
 *   **`REVIEWED: ACCEPT [worker]`**
     *   *When*: The code is correct, compiles cleanly, and is committed correctly.
-    *   *Action*: Signals the orchestrator to merge the commits, notify the worker to enter planning mode (`tell-worker accept`), and reset you to `IDLE`.
+    *   *Action*: Signals the orchestrator to accept the completed step, notify the worker to enter planning mode (`tell-worker accept`), and reset you to `IDLE`. Use this only when the worker should continue with another task after acceptance.
+*   **`REVIEWED: PREPARE [worker]`**
+    *   *When*: The code is correct, compiles cleanly, is committed correctly, and this accepted branch should now be prepared for merge instead of continuing to another task.
+    *   *Action*: Signals the orchestrator to send the worker into merge preparation (`tell-worker rebase origin/main`) and reset you to `IDLE`.
 *   **`REVIEWED: REJECT [worker]`**
     *   *When*: The code fails to compile, has unwanted stubs, lacks credits, or is incorrect.
     *   *Action*: Signals the orchestrator to roll back the branch, notify the worker of the rejection with feedback, and reset you to `IDLE`.

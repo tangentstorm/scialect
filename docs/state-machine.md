@@ -25,7 +25,8 @@ stateDiagram-v2
             SUGGEST --> AWAITING_APPROVAL : Run local-step (worker -> AWAITING, coordinator -> REVIEWING)
             BLOCKED --> AWAITING_TRIAGE : Run local-step (worker -> AWAITING, coordinator -> REVIEWING)
             
-            AWAITING_REVIEW --> WORKING_PLANNING : Coordinator accepts code (Run local-step / accept)
+            AWAITING_REVIEW --> WORKING_PLANNING : Coordinator accepts code for more work (Run local-step / accept)
+            AWAITING_REVIEW --> WORKING_REBASE : Coordinator accepts code for integration (Run local-step / prepare)
             AWAITING_APPROVAL --> WORKING : Coordinator approves task plan (Run local-step / accept)
             AWAITING_TRIAGE --> WORKING : Coordinator provides stubs / unblocks (Run local-step / accept)
             
@@ -46,6 +47,7 @@ stateDiagram-v2
             
             state "Reviewed Decision State" as REVIEWED_DECISION {
                 REVIEWED_ACCEPT : REVIEWED: ACCEPT [worker]
+                REVIEWED_PREPARE : REVIEWED: PREPARE [worker]
                 REVIEWED_ADJUST : REVIEWED: ADJUST [worker]
                 REVIEWED_REJECT : REVIEWED: REJECT [worker]
             }
@@ -91,7 +93,8 @@ The coordinator is an active participant in the workflow. Its own `.sci/status-l
 3.  **`REVIEWED: [DECISION] [worker]`**
     *   *Meaning*: The coordinator has completed the review. The deterministic orchestrator server reads this status to know the exact judgement and execute the required action, before resetting the coordinator's status back to `IDLE`.
     *   *Possible Decisions*:
-        *   `REVIEWED: ACCEPT [worker]` — Accept the work / plan, merge commits (if code), and transition worker to `WORKING`.
+        *   `REVIEWED: ACCEPT [worker]` — Accept the work or plan and transition the worker to the next normal work phase. For code review, this means planning the next task; for task-plan approval, this means executing the approved task.
+        *   `REVIEWED: PREPARE [worker]` — Accept completed code and transition the worker to merge preparation (`WORKING: rebase onto origin/main`) instead of next-task planning.
         *   `REVIEWED: ADJUST [worker]` — Task plan needs adjustments (worker transitions to `WORKING: adjust plan`).
         *   `REVIEWED: REJECT [worker]` — Worker must roll back their changes completely and start over (with a fresh `task.md` and new session).
 
@@ -110,6 +113,9 @@ The orchestrator script `local-step` drives all worker/coordinator handoffs, cop
 *   **`accept`** (`tell-worker -- <worker> accept`):
     *   *Prompt Guide*: `proving-guide.md`
     *   *Action*: Prompts the accepted worker to enter planning mode, re-read `plan.md`, and write their next task plan to `task.md`. Transitions worker to `WORKING`.
+*   **`prepare` decision** (`REVIEWED: PREPARE <worker>`, processed by `local-step`):
+    *   *Prompt Guide*: `rebase-guide.md`
+    *   *Action*: Prompts the accepted worker to prepare the branch for integration by rebasing onto `origin/main`, running verification, pushing, and opening or updating the PR. Transitions worker to `WORKING: rebase onto origin/main`.
 *   **`approve-task`** (`tell-worker -- <coordinator> approve-task <worker>`):
     *   *Prompt Guide*: `approve-task-guide.md`
     *   *Action*: Assert coordinator is `IDLE`. Transitions coordinator to `REVIEWING: <worker>` and prompts the coordinator to review/approve the proposed task plan in the worker's `task.md`.

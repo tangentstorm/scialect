@@ -162,6 +162,25 @@ function checkIdle(w: WorkerConfig) {
   }
 }
 
+function checkReadyForIntegration(w: WorkerConfig) {
+  const configuredDir = expandHome(w.dir);
+  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(sciDir, 'status-line');
+
+  if (existsSync(statusPath)) {
+    const statusContent = readFileSync(statusPath, 'utf8').trim();
+    const statusUpper = statusContent.toUpperCase();
+    if (statusContent &&
+        !statusUpper.startsWith('IDLE') &&
+        !statusUpper.startsWith('HELD') &&
+        !statusUpper.startsWith('AWAITING: CODE REVIEW') &&
+        !statusUpper.startsWith('READY')) {
+      console.error(`${w.id}: Status is not ready for integration (currently: '${statusContent}'). Cannot start rebase.`);
+      process.exit(1);
+    }
+  }
+}
+
 async function doAssigned(w: WorkerConfig, dir: string, target: string) {
   checkIdle(w);
   await assertTmuxWindowExists(w.session, w.window, w.id);
@@ -467,7 +486,7 @@ async function doReject(w: WorkerConfig, dir: string, target: string) {
 }
 
 async function doRebase(w: WorkerConfig, dir: string, target: string, branch: string) {
-  checkIdle(w);
+  checkReadyForIntegration(w);
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);

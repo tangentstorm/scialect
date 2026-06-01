@@ -68,8 +68,8 @@ async function main() {
 
   const proposals: ActionProposal[] = [];
 
-  // Case 1: Manager has a pending decision (REVIEWED: ACCEPT/ADJUST/REJECT/UNBLOCKED)
-  const reviewedMatch = mgrStatus.match(/^REVIEWED:\s*(ACCEPT|ADJUST|REJECT|UNBLOCKED)\s+([A-Za-z0-9_-]+)/i);
+  // Case 1: Manager has a pending decision (REVIEWED: ACCEPT/PREPARE/ADJUST/REJECT/UNBLOCKED)
+  const reviewedMatch = mgrStatus.match(/^REVIEWED:\s*(ACCEPT|PREPARE|ADJUST|REJECT|UNBLOCKED)\s+([A-Za-z0-9_-]+)/i);
   if (reviewedMatch) {
     const decision = reviewedMatch[1]!.toUpperCase();
     const targetId = reviewedMatch[2]!;
@@ -105,6 +105,19 @@ async function main() {
             }
           });
         }
+      } else if (decision === 'PREPARE') {
+        proposals.push({
+          description: `[Decision] Manager accepted ${targetId}'s code work for integration. Start merge preparation and reset manager to IDLE.`,
+          execute: async () => {
+            console.log(`Resetting manager status to IDLE...`);
+            writeStatus(mgr.dir, 'IDLE: ...');
+            console.log(`Running tell-worker rebase for ${targetId}...`);
+            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'rebase', 'origin/main'], { stdio: 'inherit' });
+            if (res.status !== 0) {
+              console.error(`Command failed with exit code ${res.status}`);
+            }
+          }
+        });
       } else if (decision === 'ADJUST') {
         proposals.push({
           description: `[Decision] Manager requested adjustments for ${targetId}'s plan. Transition ${targetId} to adjusting and reset manager to IDLE.`,
