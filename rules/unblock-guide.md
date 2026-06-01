@@ -10,7 +10,7 @@ Your goal is to inspect the worker's blocker report and help them resume work by
 ---
 
 ## 2. Step-by-Step Triage Procedure
-1.  **Navigate & Read Blocker Triage Report**: Change directory to the worker's project directory (provided in your prompt). Locate the triage report at the bottom of the worker's `.sci/task.md`. Understand the exact compiler error or cross-group gate.
+1.  **Navigate & Read Blocker Triage Report**: Change directory to the **worker's** project directory (provided in your prompt). Once there, every bare `.sci/...` path below refers to the **worker's** `.sci/`. Locate the triage report at the bottom of the worker's `.sci/task.md`. Understand the exact compiler error or cross-group gate.
 2.  **Evaluate Block Validity**:
     *   *If Gated by Upstream*: Check if the target theorem is waiting for a lower-layer Group (e.g. Group 4 waiting for Group 1).
     *   *If Lean Compiler Error*: Verify if there is a universe level mismatch or typeclass elaboration panic.
@@ -21,7 +21,7 @@ Your goal is to inspect the worker's blocker report and help them resume work by
 ---
 
 ## 3. Decision & Status Reporting
-Once you have formulated a resolution, write it as clear constructive feedback in their `task.md` (or output it in your response) and set your **own** `.sci/status-line` to:
+Once you have formulated a resolution, write it as clear constructive feedback in the **worker's** `.sci/task.md` (or output it in your response) and set **your own** status-line — i.e. the `status-line` file in **your own** manager `.sci/` directory, NOT the worker's `.sci/status-line` — to the following. (Use an absolute path to your own `.sci/status-line` so the `cd` into the worker's directory does not redirect the write.)
 
 *   **`REVIEWED: UNBLOCKED [worker]`**
     *   *Action*: Signals the orchestrator that the blocker is triaged, the worker is unblocked, and resets you to `IDLE`.

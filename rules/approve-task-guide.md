@@ -13,14 +13,14 @@ Your goal is to inspect the worker's proposed next commit-sized step in `task.md
 ---
 
 ## 2. Step-by-Step Approval Procedure
-1.  **Navigate & Read Task Proposal**: Change directory to the worker's project directory (provided in your prompt). Locate the proposed next step at the top of the worker's `.sci/task.md` (under the `SUGGEST: ...` status).
-2.  **Check plan.md**: Re-read `.sci/plan.md` to confirm this is the correct next logical milestone.
+1.  **Navigate & Read Task Proposal**: Change directory to the **worker's** project directory (provided in your prompt). Once there, every bare `.sci/...` path below refers to the **worker's** `.sci/`. Locate the proposed next step at the top of the worker's `.sci/task.md` (under the `SUGGEST: ...` status).
+2.  **Check plan.md**: Re-read the worker's `.sci/plan.md` to confirm this is the correct next logical milestone.
 3.  **Evaluate Scope**: Confirm that the target file and target proof are precisely scoped.
 
 ---
 
 ## 3. Decision & Status Reporting
-Once your plan review is complete, write a brief comment and set your **own** `.sci/status-line` to exactly one of the following:
+Once your plan review is complete, write a brief comment (in the worker's `.sci/task.md` or in your chat response) and set **your own** status-line — i.e. the `status-line` file in **your own** manager `.sci/` directory, NOT the worker's `.sci/status-line` — to exactly one of the following. (Use an absolute path to your own `.sci/status-line` so the `cd` into the worker's directory does not redirect the write.)
 
 *   **`REVIEWED: ACCEPT [worker]`**
     *   *When*: The plan is precise, correctly scoped, and aligns with `plan.md`.

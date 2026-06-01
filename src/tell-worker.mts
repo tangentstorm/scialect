@@ -539,8 +539,8 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   }
   const targetDir = expandHome(targetWorker.dir);
 
-  const changeNotice = changed ? ' IMPORTANT: .sci/review-guide.md has just been updated with new instructions; please read it carefully.' : '';
-  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Change your directory to ${targetDir} and inspect the files there. Refer to .sci/review-guide.md for detailed instructions on conducting reviews and setting your status.${changeNotice}`;
+  const changeNotice = changed ? ` IMPORTANT: your own review-guide at ${configuredDir}/.sci/review-guide.md has just been updated with new instructions; please read it carefully.` : '';
+  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect the files there: read that worker's ${targetDir}/.sci/goal.md, ${targetDir}/.sci/plan.md, and ${targetDir}/.sci/task.md, and write your review to that worker's ${targetDir}/.sci/result.md. Follow the instructions in YOUR OWN review-guide at ${configuredDir}/.sci/review-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {
@@ -595,8 +595,8 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
   }
   const targetDir = expandHome(targetWorker.dir);
 
-  const changeNotice = changed ? ' IMPORTANT: .sci/approve-task-guide.md has just been updated with new instructions; please read it carefully.' : '';
-  const approveMessage = `Please review and approve the proposed next task plan in .sci/task.md for ${targetWorkerId}. Change your directory to ${targetDir} and inspect the files there. Refer to .sci/approve-task-guide.md for detailed instructions.${changeNotice}`;
+  const changeNotice = changed ? ` IMPORTANT: your own approve-task-guide at ${configuredDir}/.sci/approve-task-guide.md has just been updated with new instructions; please read it carefully.` : '';
+  const approveMessage = `Please review and approve the proposed next task plan for ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect the files there: read that worker's ${targetDir}/.sci/task.md and ${targetDir}/.sci/plan.md. Follow the instructions in YOUR OWN approve-task-guide at ${configuredDir}/.sci/approve-task-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {
@@ -651,8 +651,8 @@ async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
   }
   const targetDir = expandHome(targetWorker.dir);
 
-  const changeNotice = changed ? ' IMPORTANT: .sci/unblock-guide.md has just been updated with new instructions; please read it carefully.' : '';
-  const unblockMessage = `Please triage the blocker reported by ${targetWorkerId}. Change your directory to ${targetDir} and inspect the task.md file there. Refer to .sci/unblock-guide.md for detailed instructions.${changeNotice}`;
+  const changeNotice = changed ? ` IMPORTANT: your own unblock-guide at ${configuredDir}/.sci/unblock-guide.md has just been updated with new instructions; please read it carefully.` : '';
+  const unblockMessage = `Please triage the blocker reported by ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect that worker's ${targetDir}/.sci/task.md there, where you should also write your triage feedback. Follow the instructions in YOUR OWN unblock-guide at ${configuredDir}/.sci/unblock-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {
