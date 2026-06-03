@@ -59,7 +59,7 @@ Finish the project by working "Leafward" from the goal.
 
 When assigning (or re-assigning) work to a worker, the manager **must** perform the following steps in order:
 
-1. **Delete the worker’s old `.sci/result.md`** (if it exists). This ensures the worker starts fresh and does not carry over stale status.
+1. **Delete the worker’s old `.sci/result.md` and `.sci/review.md`** (if they exist). This ensures the worker starts fresh and does not carry over stale output or review feedback.
 2. **Overwrite the worker’s `goal.md`** with the new goal. The new `goal.md` **must** contain a clear reference to `.sci/proving-guide.md` (see top of this document).
 3. **Create or update `.sci/status-line`** in the worker’s directory with exactly one line in the following format:
 

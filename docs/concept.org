@@ -31,7 +31,7 @@ This is a tool for organizing parallel work on large proofs.
   /goal follow the instructions in goal.md
   ```
   (may change slightly based on which agent is doing the work)
-- whenever a worker stops done, I tell the manager about it, and it reviews the result.md file.
+- whenever a worker stops done, I tell the manager about it; the manager inspects the worker output in result.md and writes review feedback to review.md.
   then, it decides whether the work is ready to merge into the project, or whether the prompt
   needs adjustment.
 - the (intended) benefit of this is that the manager's context window stays populated with

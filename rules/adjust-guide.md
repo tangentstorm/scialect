@@ -10,7 +10,7 @@ The manager has rejected your proposed next task plan in `task.md` with specific
 ---
 
 ## 2. Step-by-Step Adjustment Procedure
-1.  **Read Manager Feedback**: Locate the manager's review comments (usually appended to `.sci/task.md` or found in recent review results).
+1.  **Read Manager Feedback**: Locate the manager's review comments (usually in `.sci/review.md`, appended to `.sci/task.md`, or found in recent review results).
 2.  **Scope Down**: Scale down your task plan. Break the milestone into smaller, more granular stubs.
 3.  **Rewrite task.md**: Overwrite `.sci/task.md` with the adjusted, tightly scoped step (leaving all checklists unchecked `[ ]`).
 

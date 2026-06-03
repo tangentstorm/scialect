@@ -205,10 +205,14 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     process.exit(1);
   }
 
-  // Remove old result
+  // Remove old worker output and manager review
   const resultPath = resolve(sciDir, 'result.md');
   if (existsSync(resultPath)) {
     unlinkSync(resultPath);
+  }
+  const reviewPath = resolve(sciDir, 'review.md');
+  if (existsSync(reviewPath)) {
+    unlinkSync(reviewPath);
   }
 
   // Propagate proving-guide.md
@@ -473,7 +477,7 @@ async function doReject(w: WorkerConfig, dir: string, target: string) {
     }
 
     const changeNotice = changed ? ' IMPORTANT: .sci/adjust-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `The manager has REJECTED your code! Please read the manager's review in .sci/result.md, revert any bad commits if necessary, fix your code, and submit it again. Remember to set your status back to READY when finished.${changeNotice}`;
+    const handoffMsg = `The manager has REJECTED your code! Please read the manager's review in .sci/review.md, revert any bad commits if necessary, fix your code, and submit it again. Remember to set your status back to READY when finished.${changeNotice}`;
 
     await tmux.sendKeys(target, handoffMsg, false);
     await sleep(500);
@@ -559,7 +563,7 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   const targetDir = expandHome(targetWorker.dir);
 
   const changeNotice = changed ? ` IMPORTANT: your own review-guide at ${configuredDir}/.sci/review-guide.md has just been updated with new instructions; please read it carefully.` : '';
-  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect the files there: read that worker's ${targetDir}/.sci/goal.md, ${targetDir}/.sci/plan.md, and ${targetDir}/.sci/task.md, and write your review to that worker's ${targetDir}/.sci/result.md. Follow the instructions in YOUR OWN review-guide at ${configuredDir}/.sci/review-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
+  const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect the files there: read that worker's ${targetDir}/.sci/goal.md, ${targetDir}/.sci/plan.md, and ${targetDir}/.sci/task.md, and write your review to that worker's ${targetDir}/.sci/review.md. Do not overwrite that worker's ${targetDir}/.sci/result.md; it is reserved for worker task output. Follow the instructions in YOUR OWN review-guide at ${configuredDir}/.sci/review-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
   if (agent.includes('codex')) {

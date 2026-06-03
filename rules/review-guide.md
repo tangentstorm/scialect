@@ -20,7 +20,7 @@ Your goal is to inspect the worker's changes and make a deterministic quality de
 ---
 
 ## 3. Decision & Status Reporting
-Once your review is complete, you must write a brief review summary to the **worker's** `.sci/result.md` (this is the file the worker will read on a REJECT, so it goes in the worker's directory you navigated to — or output it in your chat response). Then set **your own** status-line — i.e. the `status-line` file in **your own** manager `.sci/` directory, NOT the worker's `.sci/status-line` — to exactly one of the following. (Use an absolute path to your own `.sci/status-line` so the `cd` into the worker's directory does not redirect the write.)
+Once your review is complete, you must write a brief review summary to the **worker's** `.sci/review.md` (this is the file the worker will read on a REJECT, so it goes in the worker's directory you navigated to — or output it in your chat response). Do **not** overwrite the worker's `.sci/result.md`; that file is reserved for the worker's task output. Then set **your own** status-line — i.e. the `status-line` file in **your own** manager `.sci/` directory, NOT the worker's `.sci/status-line` — to exactly one of the following. (Use an absolute path to your own `.sci/status-line` so the `cd` into the worker's directory does not redirect the write.)
 
 *   **`REVIEWED: ACCEPT [worker]`**
     *   *When*: The code is correct, compiles cleanly, and is committed correctly.
