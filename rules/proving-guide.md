@@ -14,7 +14,7 @@ When you are assigned a new task by the manager, your status will be set to `ASS
 4.  Follow the **scaffolding strategy** (no general math theory, narrow local stubs).
 5.  Run the narrowest target build: `lake build Jacobian.Layer.File`.
 6.  Run `lake build Jacobian.Solution` to verify no warnings except "uses sorry" were introduced.
-7.  Commit your changes using your primary committer identity and appropriate `Co-authored-by` credits (see `/rules/commit-guide.md`).
+7.  Commit your changes with a plain `git commit` and appropriate `Co-authored-by` credits (see `/rules/commit-guide.md`).
 8.  Once committed, set your status-line in `.sci/status-line` to `READY: [commit_description]` to alert the manager (`mgr`) for code review.
 
 ### B. Planning Mode (Proposing the Next Task)
