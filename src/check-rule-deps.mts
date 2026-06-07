@@ -38,7 +38,8 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
+import { splitFrontmatter, parseUses } from "./rule-deps.mts";
 
 type Problem = {
   file: string;
@@ -60,38 +61,6 @@ if (!existsSync(rulesDir)) {
 const ruleFiles = readdirSync(rulesDir).filter((f) => f.endsWith(".md"));
 const ruleSet = new Set(ruleFiles);
 
-/** Split frontmatter (if present) from body. */
-function splitFrontmatter(text: string): { fm: string | null; body: string; raw: string } {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!m) return { fm: null, body: text, raw: text };
-  return { fm: m[1], body: text.slice(m[0].length), raw: text };
-}
-
-/** Parse a `uses: [a.md, b.md]` (or multi-line list) out of frontmatter. */
-function parseUses(fm: string | null): string[] {
-  if (!fm) return [];
-  // inline form: uses: [a.md, b.md]
-  const inline = fm.match(/^uses:\s*\[([^\]]*)\]/m);
-  if (inline) {
-    return inline[1]
-      .split(",")
-      .map((s) => s.trim().replace(/^['"]|['"]$/g, ""))
-      .filter(Boolean);
-  }
-  // block form:
-  //   uses:
-  //     - a.md
-  //     - b.md
-  const block = fm.match(/^uses:\s*\n((?:\s*-\s*.+\n?)+)/m);
-  if (block) {
-    return block[1]
-      .split("\n")
-      .map((l) => l.replace(/^\s*-\s*/, "").trim().replace(/^['"]|['"]$/g, ""))
-      .filter(Boolean);
-  }
-  return [];
-}
-
 /**
  * Find references to rules/ files in the body prose, returning the set of
  * basenames referenced.
@@ -111,12 +80,12 @@ function findRuleRefs(body: string): Set<string> {
   const rulesRe = /\/?rules\/([A-Za-z0-9_-]+\.md)/g;
   let m: RegExpExecArray | null;
   while ((m = rulesRe.exec(body)) !== null) {
-    refs.add(m[1]);
+    refs.add(m[1]!);
   }
 
   const sciRe = /\.sci\/([A-Za-z0-9_-]+\.md)/g;
   while ((m = sciRe.exec(body)) !== null) {
-    if (ruleSet.has(m[1])) refs.add(m[1]);
+    if (ruleSet.has(m[1]!)) refs.add(m[1]!);
   }
 
   return refs;
@@ -133,7 +102,7 @@ function findUnlinkedMd(body: string): string[] {
   const re = /(?<![`\[(/\w-])((?:\/?[\w./-]*\/)?[\w-]+\.md)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
-    const path = m[1];
+    const path = m[1]!;
     const idx = m.index;
     // Look at the characters immediately around the match to classify context.
     const before = body.slice(Math.max(0, idx - 1), idx);
@@ -158,7 +127,7 @@ const fixes: { file: string; newText: string }[] = [];
 for (const file of ruleFiles) {
   const fullPath = join(rulesDir, file);
   const text = readFileSync(fullPath, "utf8");
-  const { fm, body, raw } = splitFrontmatter(text);
+  const { fm, body } = splitFrontmatter(text);
 
   const declared = parseUses(fm);
   const refs = findRuleRefs(body);
@@ -195,7 +164,7 @@ for (const file of ruleFiles) {
     const current = [...declared].sort();
     const same = wanted.length === current.length && wanted.every((w, i) => w === current[i]);
     if (!same) {
-      const newText = rewriteUses(raw, fm, body, wanted);
+      const newText = rewriteUses(text, fm, body, wanted);
       fixes.push({ file, newText });
     }
   }

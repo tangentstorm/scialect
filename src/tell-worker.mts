@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import * as tmux from './tmux.mts';
+import { resolveDependencies } from './rule-deps.mts';
 import { ClaudeTui } from './agents/claude-cli.mts';
 import { CodexTui } from './agents/codex-cli.mts';
 import { GeminiTui } from './agents/gemini-cli.mts';
@@ -125,7 +126,8 @@ function getCommittedGuideContent(guideName: string): string | null {
   return null;
 }
 
-function propagateGuide(targetDir: string, guideName: string): boolean {
+/** Copy a single committed guide into the worker's .sci/. Returns true if it changed. */
+function copyGuide(targetDir: string, guideName: string): boolean {
   const committedContent = getCommittedGuideContent(guideName);
   if (!committedContent) {
     console.error(`Error: Could not retrieve committed content for rules/${guideName}`);
@@ -146,6 +148,27 @@ function propagateGuide(targetDir: string, guideName: string): boolean {
   }
 
   return false; // Content did not change
+}
+
+/**
+ * Propagate a guide and everything it transitively pulls in via `uses:` into
+ * the worker's .sci/. Returns true if the named guide OR any of its
+ * dependencies changed, so callers can still emit a single "guide updated,
+ * please re-read" notice.
+ */
+function propagateGuide(targetDir: string, guideName: string): boolean {
+  let changed = copyGuide(targetDir, guideName);
+
+  const deps = resolveDependencies(guideName, getCommittedGuideContent);
+  for (const dep of deps) {
+    const depChanged = copyGuide(targetDir, dep);
+    if (depChanged) {
+      console.log(`  ${guideName} → propagated dependency ${dep}`);
+    }
+    changed = changed || depChanged;
+  }
+
+  return changed;
 }
 
 function checkIdle(w: WorkerConfig) {
