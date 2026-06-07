@@ -1,3 +1,7 @@
+---
+uses: [commit-guide.md]
+---
+
 # Proving & Planning Guide for Workers
 
 This document defines the standards and rules you **must** follow when working as an agent.

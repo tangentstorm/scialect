@@ -116,7 +116,7 @@ The provider must expose the local mathematical data needed by downstream
 proofs. It must not simply package all downstream conclusions in an opaque
 record.
 
-In .sci/result.md, report:
+In `.sci/result.md`, report:
 1. the original target;
 2. whether it is now direct-sorry-free;
 3. the new provider theorem, if any;

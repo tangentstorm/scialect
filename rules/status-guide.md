@@ -1,3 +1,7 @@
+---
+uses: [proving-guide.md]
+---
+
 # Agent Status and Unblocking Protocol
 
 To ensure highly effective, autonomous progress in this multi-agent setup, all workers must adhere strictly to the following status lifecycle and unblocking rules.

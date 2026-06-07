@@ -1,3 +1,7 @@
+---
+uses: [proving-guide.md]
+---
+
 # AI Formalization Prompting Guide
 
 This guide contains strategies to ensure that AI agents (Claude, Codex, Gemini) produce mathematically meaningful proofs and do not "game" the scaffolding or trivialize definitions.

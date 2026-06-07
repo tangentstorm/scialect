@@ -24,6 +24,7 @@
     "local-status": "tsx src/local-status.mts",
     "for-all": "tsx src/for-all.mts",
     "check-up-to-date": "bin/check-up-to-date",
+    "check-rule-deps": "tsx src/check-rule-deps.mts",
     "gh-status": "tsx src/gh-status.mts",
     "tell-worker": "tsx src/tell-worker.mts",
     "local-step": "tsx src/local-step.mts",

@@ -1,3 +1,7 @@
+---
+uses: [prompting-guide.md]
+---
+
 # Cloud Workers Guide
 
 This guide documents the protocol for working with Claude Code cloud workers in the browser via Playwright and interacting with local auxiliary workers (like `jc1` running in tmux). This is a living document and should be continuously updated as new workflows or constraints are discovered.
