@@ -315,10 +315,17 @@ async function main() {
       });
       console.log('');
 
-      const answer = await rl.question(`Select an action to execute (1-${proposals.length}) or 'q' to quit: `);
+      const answer = await rl.question(`Select an action to execute (1-${proposals.length}), 'y' for a random pick, or 'q' to quit: `);
       const choice = answer.trim().toLowerCase();
       if (choice === 'q') {
         console.log('\nExiting.');
+      } else if (choice === 'y') {
+        // 'y' picks one of the available options at random.
+        const num = Math.floor(Math.random() * proposals.length) + 1;
+        const prop = proposals[num - 1]!;
+        console.log(`\nRandomly selected action ${num}. Executing...`);
+        await prop.execute();
+        console.log('Done!');
       } else {
         const num = parseInt(choice, 10);
         if (num >= 1 && num <= proposals.length) {
