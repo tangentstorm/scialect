@@ -258,16 +258,32 @@ async function collectSwarmRows(): Promise<string[][]> {
   return rows;
 }
 
+const MAX_TABLE_WIDTH = 90;
+
 function printSwarmTable(rows: string[][]) {
   const headers = ['id', 'agent', 'state', 'health', 'status'];
   const all = [headers, ...rows];
 
+  // Natural (content) width of each column.
   const widths = headers.map((_, i) =>
     Math.max(...all.map(row => (row[i] ?? '').length))
   );
 
+  // Keep the whole line within MAX_TABLE_WIDTH. The separator " | " between N
+  // columns costs 3*(N-1) chars; the first four columns (id/agent/state/health)
+  // are short, so absorb any overflow by clamping the last column (status).
+  const sep = ' | ';
+  const sepTotal = sep.length * (headers.length - 1);
+  const lastIdx = headers.length - 1;
+  const fixed = widths.slice(0, lastIdx).reduce((a, b) => a + b, 0);
+  const statusBudget = Math.max(3, MAX_TABLE_WIDTH - sepTotal - fixed);
+  if (widths[lastIdx]! > statusBudget) widths[lastIdx] = statusBudget;
+
+  const fit = (cell: string, w: number) =>
+    cell.length > w ? cell.slice(0, Math.max(0, w - 1)) + '…' : cell.padEnd(w);
+
   const line = (row: string[]) =>
-    row.map((cell, i) => (cell ?? '').padEnd(widths[i] ?? 0)).join(' | ');
+    row.map((cell, i) => fit(cell ?? '', widths[i] ?? 0)).join(sep);
 
   console.log(line(headers));
   console.log(widths.map(w => '-'.repeat(w)).join('-+-'));
