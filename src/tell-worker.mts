@@ -171,6 +171,23 @@ function propagateGuide(targetDir: string, guideName: string): boolean {
   return changed;
 }
 
+/** Read-only peek: would propagateGuide() change anything on disk? Compares the
+ * committed guide (and its transitive `uses:` deps) against the worker's .sci/
+ * copies WITHOUT writing. Used to compute the handoff change-notice before the
+ * actual propagation (which is deferred until after the message send). */
+function guideWouldChange(targetDir: string, guideName: string): boolean {
+  const sciDir = resolve(targetDir, '.sci');
+  const names = [guideName, ...resolveDependencies(guideName, getCommittedGuideContent)];
+  for (const name of names) {
+    const committed = getCommittedGuideContent(name);
+    if (!committed) continue;
+    const targetPath = resolve(sciDir, name);
+    const existing = existsSync(targetPath) ? readFileSync(targetPath, 'utf8') : '';
+    if (existing.trim() !== committed.trim()) return true;
+  }
+  return false;
+}
+
 function checkIdle(w: WorkerConfig) {
   const configuredDir = expandHome(w.dir);
   const sciDir = resolve(configuredDir, '.sci');
@@ -228,31 +245,18 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     process.exit(1);
   }
 
-  // Remove old worker output and manager review
-  const resultPath = resolve(sciDir, 'result.md');
-  if (existsSync(resultPath)) {
-    unlinkSync(resultPath);
-  }
-  const reviewPath = resolve(sciDir, 'review.md');
-  if (existsSync(reviewPath)) {
-    unlinkSync(reviewPath);
-  }
+  // --- ATOMICITY ---------------------------------------------------------
+  // Do NOT mutate any worker state (status-line, result/review, guide) until
+  // the handoff message has actually been delivered to the live agent pane.
+  // Otherwise a failed send (e.g. the prompt never reaches an empty state)
+  // strands the worker in `ASSIGNED` and `tell-worker assigned` refuses to
+  // retry (it requires IDLE/HELD). So: reach the empty prompt first, then send,
+  // and only after a successful send write the new state.
 
-  // Propagate proving-guide.md
-  const changed = propagateGuide(configuredDir, 'proving-guide.md');
-
-  // Set status-line inside .sci/
-  const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `ASSIGNED\n`, 'utf8');
-
-  console.log(`${w.id}: files prepared (ASSIGNED, .sci/goal.md + plan.md + task.md, result cleared, guide propagated)`);
-
-  // Now talk to the live agent in the pane
   const detected = await detectAgent(w.session, w.window);
   const agent = (detected || 'claude').toLowerCase();
 
   let tui: any = null;
-
   if (agent.includes('codex')) {
     tui = new CodexTui(target);
   } else if (agent === 'claude') {
@@ -261,36 +265,122 @@ async function doAssigned(w: WorkerConfig, dir: string, target: string) {
     tui = new GeminiTui(target);
   }
 
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    console.log(`${w.id}: clean prompt detected. Sending handoff...`);
-
-    const changeNotice = changed ? ' IMPORTANT: .sci/proving-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `/goal You have been assigned a new task. Please review .sci/goal.md, .sci/plan.md, and .sci/task.md. Then, follow the instructions in .sci/proving-guide.md to acknowledge the assignment and begin work.${changeNotice}`;
-
-    if (agent === 'claude' || agent.includes('codex')) {
-      await tmux.sendKeys(target, '/new', false);
-      await sleep(500);
-      await tmux.sendKeys(target, 'Enter', false);
-      await sleep(10000);
-      await tmux.sendKeys(target, handoffMsg, false);
-      await sleep(500);
-      await tmux.sendKeys(target, 'Enter', false);
-    } else if (agent === 'gemini') {
-      await tmux.sendKeys(target, handoffMsg, false);
-      await sleep(500);
-      await tmux.sendKeys(target, 'Enter', false);
-    }
-
-    console.log(`${w.id}: handoff sent to ${agent}.`);
-  } else {
+  if (!tui) {
+    // No live-agent handling for this agent; nothing to send, so it is safe to
+    // prepare the files directly (there is no fallible send step to gate on).
     console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
+    finalizeAssigned(w, configuredDir, sciDir);
+    return;
   }
+
+  // 1. Reach an empty prompt BEFORE touching any state.
+  console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
+  if (!await tui.ensurePromptIsEmpty()) {
+    console.error(`${w.id}: never reached empty prompt — no changes made; worker left as-is, safe to retry.`);
+    process.exit(1);
+  }
+
+  // 2. Send the handoff. We compute the guide-change notice WITHOUT writing the
+  //    guide yet (peek), so the message text is correct; the actual propagation
+  //    happens in finalize() only after the send succeeds.
+  const guideWillChange = guideWouldChange(configuredDir, 'proving-guide.md');
+  console.log(`${w.id}: clean prompt detected. Sending handoff...`);
+  const changeNotice = guideWillChange ? ' IMPORTANT: .sci/proving-guide.md has just been updated with new instructions; please read it carefully.' : '';
+  const handoffMsg = `/goal You have been assigned a new task. Please review .sci/goal.md, .sci/plan.md, and .sci/task.md. Then, follow the instructions in .sci/proving-guide.md to acknowledge the assignment and begin work.${changeNotice}`;
+
+  if (agent === 'claude' || agent.includes('codex')) {
+    await tmux.sendKeys(target, '/new', false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
+    await sleep(10000);
+    await tmux.sendKeys(target, handoffMsg, false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
+  } else if (agent === 'gemini') {
+    await tmux.sendKeys(target, handoffMsg, false);
+    await sleep(500);
+    await tmux.sendKeys(target, 'Enter', false);
+  }
+
+  // 3. Send succeeded — NOW commit the state changes.
+  finalizeAssigned(w, configuredDir, sciDir);
+  console.log(`${w.id}: handoff sent to ${agent}.`);
+}
+
+/**
+ * Atomic worker handoff: reach an empty prompt and send the message FIRST, then
+ * run `commit()` (which writes the new status-line / propagates guides). If the
+ * prompt is never reachable, nothing is committed — the worker is left as-is and
+ * the command is safe to retry. Used by the single-message worker verbs
+ * (accept, plan-approved, adjust, unblocked, reject, rebase).
+ *
+ * `message(notice)` builds the handoff text; `notice` is the guide-change
+ * warning, computed via a read-only peek so the text is correct even though the
+ * guide is not actually propagated until `commit()`.
+ */
+async function sendHandoffThenCommit(
+  w: WorkerConfig,
+  target: string,
+  opts: {
+    guide?: string;
+    configuredDir: string;
+    message: (notice: string) => string;
+    commit: () => void;
+  },
+) {
+  const detected = await detectAgent(w.session, w.window);
+  const agent = (detected || 'claude').toLowerCase();
+
+  let tui: any = null;
+  if (agent.includes('codex')) {
+    tui = new CodexTui(target);
+  } else if (agent === 'claude') {
+    tui = new ClaudeTui(target);
+  } else if (agent === 'gemini') {
+    tui = new GeminiTui(target);
+  }
+
+  if (!tui) {
+    // No live-agent send step; commit directly (nothing fallible to gate on).
+    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
+    opts.commit();
+    return;
+  }
+
+  console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
+  if (!await tui.ensurePromptIsEmpty()) {
+    console.error(`${w.id}: never reached empty prompt — no changes made; worker left as-is, safe to retry.`);
+    process.exit(1);
+  }
+
+  const notice = opts.guide && guideWouldChange(opts.configuredDir, opts.guide)
+    ? ` IMPORTANT: .sci/${opts.guide} has just been updated with new instructions; please read it carefully.`
+    : '';
+
+  await tmux.sendKeys(target, opts.message(notice), false);
+  await sleep(500);
+  await tmux.sendKeys(target, 'Enter', false);
+
+  // Send succeeded — now commit the state changes.
+  opts.commit();
+  console.log(`${w.id}: handoff sent to ${agent}.`);
+}
+
+/** Commit the worker-state changes for an `assigned` handoff. Called only after
+ * the handoff message has been delivered (or when there is no send step), so a
+ * failed send never leaves the worker mutated. */
+function finalizeAssigned(w: WorkerConfig, configuredDir: string, sciDir: string) {
+  const resultPath = resolve(sciDir, 'result.md');
+  if (existsSync(resultPath)) unlinkSync(resultPath);
+  const reviewPath = resolve(sciDir, 'review.md');
+  if (existsSync(reviewPath)) unlinkSync(reviewPath);
+
+  propagateGuide(configuredDir, 'proving-guide.md');
+
+  const statusPath = resolve(sciDir, 'status-line');
+  writeFileSync(statusPath, `ASSIGNED\n`, 'utf8');
+
+  console.log(`${w.id}: files prepared (ASSIGNED, .sci/goal.md + plan.md + task.md, result cleared, guide propagated)`);
 }
 
 async function doAccept(w: WorkerConfig, dir: string, target: string) {
@@ -298,218 +388,88 @@ async function doAccept(w: WorkerConfig, dir: string, target: string) {
 
   const configuredDir = expandHome(dir);
   const sciDir = resolve(configuredDir, '.sci');
-
-  const changed = propagateGuide(configuredDir, 'proving-guide.md');
-
   const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: plan next step\n`, 'utf8');
 
-  console.log(`${w.id}: files prepared (WORKING: plan next step, guide propagated)`);
-
-  const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || 'claude').toLowerCase();
-
-  let tui: any = null;
-  if (agent.includes('codex')) {
-    tui = new CodexTui(target);
-  } else if (agent === 'claude') {
-    tui = new ClaudeTui(target);
-  } else if (agent === 'gemini') {
-    tui = new GeminiTui(target);
-  }
-
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    const changeNotice = changed ? ' IMPORTANT: .sci/proving-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `Your recent work has been accepted! Please read your .sci/plan.md, formulate your next commit-sized step in .sci/task.md, and set your status to SUGGEST when your task plan is ready for manager approval. Refer to .sci/proving-guide.md for detailed instructions.${changeNotice}`;
-
-    await tmux.sendKeys(target, handoffMsg, false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
-
-    console.log(`${w.id}: accept handoff sent to ${agent}.`);
-  } else {
-    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
-  }
+  // Atomic: reach prompt + send BEFORE mutating state, so a failed send leaves
+  // the worker untouched and retryable (see doAssigned for the rationale).
+  await sendHandoffThenCommit(w, target, {
+    guide: 'proving-guide.md',
+    configuredDir,
+    message: (notice) => `Your recent work has been accepted! Please read your .sci/plan.md, formulate your next commit-sized step in .sci/task.md, and set your status to SUGGEST when your task plan is ready for manager approval. Refer to .sci/proving-guide.md for detailed instructions.${notice}`,
+    commit: () => {
+      propagateGuide(configuredDir, 'proving-guide.md');
+      writeFileSync(statusPath, `WORKING: plan next step\n`, 'utf8');
+      console.log(`${w.id}: files prepared (WORKING: plan next step, guide propagated)`);
+    },
+  });
 }
 
 async function doPlanApproved(w: WorkerConfig, dir: string, target: string) {
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);
-  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(configuredDir, '.sci', 'status-line');
 
-  const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: starting task\n`, 'utf8');
-
-  console.log(`${w.id}: files prepared (WORKING: starting task)`);
-
-  const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || 'claude').toLowerCase();
-
-  let tui: any = null;
-  if (agent.includes('codex')) {
-    tui = new CodexTui(target);
-  } else if (agent === 'claude') {
-    tui = new ClaudeTui(target);
-  } else if (agent === 'gemini') {
-    tui = new GeminiTui(target);
-  }
-
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    const handoffMsg = `Your proposed task plan has been approved by the manager! Please begin executing your plan. You may use tools to write code, test it, and commit it. Remember to set your status to READY when finished.`;
-
-    await tmux.sendKeys(target, handoffMsg, false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
-
-    console.log(`${w.id}: plan-approved handoff sent to ${agent}.`);
-  } else {
-    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
-  }
+  await sendHandoffThenCommit(w, target, {
+    configuredDir,
+    message: () => `Your proposed task plan has been approved by the manager! Please begin executing your plan. You may use tools to write code, test it, and commit it. Remember to set your status to READY when finished.`,
+    commit: () => {
+      writeFileSync(statusPath, `WORKING: starting task\n`, 'utf8');
+      console.log(`${w.id}: files prepared (WORKING: starting task)`);
+    },
+  });
 }
 
 async function doAdjust(w: WorkerConfig, dir: string, target: string) {
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);
-  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(configuredDir, '.sci', 'status-line');
 
-  const changed = propagateGuide(configuredDir, 'adjust-guide.md');
-
-  const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: adjust task plan\n`, 'utf8');
-
-  console.log(`${w.id}: files prepared (WORKING: adjust task plan, guide propagated)`);
-
-  const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || 'claude').toLowerCase();
-
-  let tui: any = null;
-  if (agent.includes('codex')) {
-    tui = new CodexTui(target);
-  } else if (agent === 'claude') {
-    tui = new ClaudeTui(target);
-  } else if (agent === 'gemini') {
-    tui = new GeminiTui(target);
-  }
-
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    const changeNotice = changed ? ' IMPORTANT: .sci/adjust-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `Your proposed task plan was not approved by the manager. Please adjust the task in .sci/task.md based on the manager's feedback. Refer to .sci/adjust-guide.md for detailed instructions.${changeNotice}`;
-
-    await tmux.sendKeys(target, handoffMsg, false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
-
-    console.log(`${w.id}: adjust handoff sent to ${agent}.`);
-  } else {
-    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
-  }
+  await sendHandoffThenCommit(w, target, {
+    guide: 'adjust-guide.md',
+    configuredDir,
+    message: (notice) => `Your proposed task plan was not approved by the manager. Please adjust the task in .sci/task.md based on the manager's feedback. Refer to .sci/adjust-guide.md for detailed instructions.${notice}`,
+    commit: () => {
+      propagateGuide(configuredDir, 'adjust-guide.md');
+      writeFileSync(statusPath, `WORKING: adjust task plan\n`, 'utf8');
+      console.log(`${w.id}: files prepared (WORKING: adjust task plan, guide propagated)`);
+    },
+  });
 }
 
 async function doUnblocked(w: WorkerConfig, dir: string, target: string) {
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);
-  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(configuredDir, '.sci', 'status-line');
 
-  const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: resume task\n`, 'utf8');
-
-  console.log(`${w.id}: files prepared (WORKING: resume task)`);
-
-  const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || 'claude').toLowerCase();
-
-  let tui: any = null;
-  if (agent.includes('codex')) {
-    tui = new CodexTui(target);
-  } else if (agent === 'claude') {
-    tui = new ClaudeTui(target);
-  } else if (agent === 'gemini') {
-    tui = new GeminiTui(target);
-  }
-
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    const handoffMsg = `The manager has triaged your blocker. Please read .sci/task.md to see their resolution or instructions, adjust your approach as directed, and resume working on your task. Remember to set your status back to READY when finished.`;
-
-    await tmux.sendKeys(target, handoffMsg, false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
-
-    console.log(`${w.id}: unblocked handoff sent to ${agent}.`);
-  } else {
-    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
-  }
+  await sendHandoffThenCommit(w, target, {
+    configuredDir,
+    message: () => `The manager has triaged your blocker. Please read .sci/task.md to see their resolution or instructions, adjust your approach as directed, and resume working on your task. Remember to set your status back to READY when finished.`,
+    commit: () => {
+      writeFileSync(statusPath, `WORKING: resume task\n`, 'utf8');
+      console.log(`${w.id}: files prepared (WORKING: resume task)`);
+    },
+  });
 }
 
 async function doReject(w: WorkerConfig, dir: string, target: string) {
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);
-  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(configuredDir, '.sci', 'status-line');
 
-  const changed = propagateGuide(configuredDir, 'adjust-guide.md');
-
-  const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: fix rejected code\n`, 'utf8');
-
-  console.log(`${w.id}: files prepared (WORKING: fix rejected code, guide propagated)`);
-
-  const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || 'claude').toLowerCase();
-
-  let tui: any = null;
-  if (agent.includes('codex')) {
-    tui = new CodexTui(target);
-  } else if (agent === 'claude') {
-    tui = new ClaudeTui(target);
-  } else if (agent === 'gemini') {
-    tui = new GeminiTui(target);
-  }
-
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    const changeNotice = changed ? ' IMPORTANT: .sci/adjust-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `The manager has REJECTED your code! Please read the manager's review in .sci/review.md, revert any bad commits if necessary, fix your code, and submit it again. Remember to set your status back to READY when finished.${changeNotice}`;
-
-    await tmux.sendKeys(target, handoffMsg, false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
-
-    console.log(`${w.id}: reject handoff sent to ${agent}.`);
-  } else {
-    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
-  }
+  await sendHandoffThenCommit(w, target, {
+    guide: 'adjust-guide.md',
+    configuredDir,
+    message: (notice) => `The manager has REJECTED your code! Please read the manager's review in .sci/review.md, revert any bad commits if necessary, fix your code, and submit it again. Remember to set your status back to READY when finished.${notice}`,
+    commit: () => {
+      propagateGuide(configuredDir, 'adjust-guide.md');
+      writeFileSync(statusPath, `WORKING: fix rejected code\n`, 'utf8');
+      console.log(`${w.id}: files prepared (WORKING: fix rejected code, guide propagated)`);
+    },
+  });
 }
 
 async function doRebase(w: WorkerConfig, dir: string, target: string, branch: string) {
@@ -517,45 +477,18 @@ async function doRebase(w: WorkerConfig, dir: string, target: string, branch: st
   await assertTmuxWindowExists(w.session, w.window, w.id);
 
   const configuredDir = expandHome(dir);
-  const sciDir = resolve(configuredDir, '.sci');
+  const statusPath = resolve(configuredDir, '.sci', 'status-line');
 
-  const changed = propagateGuide(configuredDir, 'rebase-guide.md');
-
-  const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `WORKING: rebase onto ${branch}\n`, 'utf8');
-
-  console.log(`${w.id}: files prepared (WORKING: rebase onto ${branch}, guide propagated)`);
-
-  const detected = await detectAgent(w.session, w.window);
-  const agent = (detected || 'claude').toLowerCase();
-
-  let tui: any = null;
-  if (agent.includes('codex')) {
-    tui = new CodexTui(target);
-  } else if (agent === 'claude') {
-    tui = new ClaudeTui(target);
-  } else if (agent === 'gemini') {
-    tui = new GeminiTui(target);
-  }
-
-  if (tui) {
-    console.log(`${w.id}: waiting for empty prompt (up to 5s)...`);
-    if (!await tui.ensurePromptIsEmpty()) {
-      console.error(`${w.id}: never reached empty prompt`);
-      process.exit(1);
-    }
-
-    const changeNotice = changed ? ' IMPORTANT: .sci/rebase-guide.md has just been updated with new instructions; please read it carefully.' : '';
-    const handoffMsg = `It is time to integrate your work! Please fetch and rebase your branch onto ${branch}. Resolve any conflicts if they occur. Then run local checks (lake build Jacobian.Solution, python3 scripts/blueprint_audit.py, python3 scripts/blueprint_graph_audit.py). If everything passes, force push your branch to GitHub and create a pull request using the gh CLI. Refer to .sci/rebase-guide.md for detailed instructions.${changeNotice}`;
-
-    await tmux.sendKeys(target, handoffMsg, false);
-    await sleep(500);
-    await tmux.sendKeys(target, 'Enter', false);
-
-    console.log(`${w.id}: rebase handoff sent to ${agent}.`);
-  } else {
-    console.log(`${w.id}: no special TUI handling for agent '${agent}' yet.`);
-  }
+  await sendHandoffThenCommit(w, target, {
+    guide: 'rebase-guide.md',
+    configuredDir,
+    message: (notice) => `It is time to integrate your work! Please fetch and rebase your branch onto ${branch}. Resolve any conflicts if they occur. Then run local checks (lake build Jacobian.Solution, python3 scripts/blueprint_audit.py, python3 scripts/blueprint_graph_audit.py). If everything passes, force push your branch to GitHub and create a pull request using the gh CLI. Refer to .sci/rebase-guide.md for detailed instructions.${notice}`,
+    commit: () => {
+      propagateGuide(configuredDir, 'rebase-guide.md');
+      writeFileSync(statusPath, `WORKING: rebase onto ${branch}\n`, 'utf8');
+      console.log(`${w.id}: files prepared (WORKING: rebase onto ${branch}, guide propagated)`);
+    },
+  });
 }
 
 async function doReview(manager: WorkerConfig, targetWorkerId: string) {
@@ -564,13 +497,7 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
 
   const configuredDir = expandHome(manager.dir);
   const sciDir = resolve(configuredDir, '.sci');
-
-  // Propagate review-guide.md
-  const changed = propagateGuide(configuredDir, 'review-guide.md');
-
-  // Set manager status
   const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
 
   const targetPane = `${manager.session}:${manager.window}.0`;
   const detected = await detectAgent(manager.session, manager.window);
@@ -585,7 +512,9 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   }
   const targetDir = expandHome(targetWorker.dir);
 
-  const changeNotice = changed ? ` IMPORTANT: your own review-guide at ${configuredDir}/.sci/review-guide.md has just been updated with new instructions; please read it carefully.` : '';
+  // Notice computed from a read-only peek; the guide is not propagated until
+  // after the send succeeds (atomicity — see sendHandoffThenCommit).
+  const changeNotice = guideWouldChange(configuredDir, 'review-guide.md') ? ` IMPORTANT: your own review-guide at ${configuredDir}/.sci/review-guide.md has just been updated with new instructions; please read it carefully.` : '';
   const reviewMessage = `Please review the completed code task for ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect the files there: read that worker's ${targetDir}/.sci/goal.md, ${targetDir}/.sci/plan.md, and ${targetDir}/.sci/task.md, and write your review to that worker's ${targetDir}/.sci/review.md. Do not overwrite that worker's ${targetDir}/.sci/result.md; it is reserved for worker task output. Follow the instructions in YOUR OWN review-guide at ${configuredDir}/.sci/review-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
@@ -602,7 +531,7 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: waiting for empty prompt (up to 5s)...`);
   if (!await tui.ensurePromptIsEmpty()) {
-    console.error(`${manager.id}: never reached empty prompt`);
+    console.error(`${manager.id}: never reached empty prompt — no changes made; safe to retry.`);
     process.exit(1);
   }
 
@@ -611,6 +540,9 @@ async function doReview(manager: WorkerConfig, targetWorkerId: string) {
   await sleep(500);
   await tmux.sendKeys(targetPane, 'Enter', false);
 
+  // Send succeeded — now commit manager state.
+  propagateGuide(configuredDir, 'review-guide.md');
+  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
   console.log(`${manager.id}: review request sent for ${targetWorkerId}.`);
 }
 
@@ -620,13 +552,7 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
 
   const configuredDir = expandHome(manager.dir);
   const sciDir = resolve(configuredDir, '.sci');
-
-  // Propagate approve-task-guide.md
-  const changed = propagateGuide(configuredDir, 'approve-task-guide.md');
-
-  // Set manager status
   const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
 
   const targetPane = `${manager.session}:${manager.window}.0`;
   const detected = await detectAgent(manager.session, manager.window);
@@ -641,7 +567,7 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
   }
   const targetDir = expandHome(targetWorker.dir);
 
-  const changeNotice = changed ? ` IMPORTANT: your own approve-task-guide at ${configuredDir}/.sci/approve-task-guide.md has just been updated with new instructions; please read it carefully.` : '';
+  const changeNotice = guideWouldChange(configuredDir, 'approve-task-guide.md') ? ` IMPORTANT: your own approve-task-guide at ${configuredDir}/.sci/approve-task-guide.md has just been updated with new instructions; please read it carefully.` : '';
   const approveMessage = `Please review and approve the proposed next task plan for ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect the files there: read that worker's ${targetDir}/.sci/task.md and ${targetDir}/.sci/plan.md. Follow the instructions in YOUR OWN approve-task-guide at ${configuredDir}/.sci/approve-task-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
@@ -658,7 +584,7 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: waiting for empty prompt (up to 5s)...`);
   if (!await tui.ensurePromptIsEmpty()) {
-    console.error(`${manager.id}: never reached empty prompt`);
+    console.error(`${manager.id}: never reached empty prompt — no changes made; safe to retry.`);
     process.exit(1);
   }
 
@@ -667,6 +593,9 @@ async function doApproveTask(manager: WorkerConfig, targetWorkerId: string) {
   await sleep(500);
   await tmux.sendKeys(targetPane, 'Enter', false);
 
+  // Send succeeded — now commit manager state.
+  propagateGuide(configuredDir, 'approve-task-guide.md');
+  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
   console.log(`${manager.id}: task approval request sent for ${targetWorkerId}.`);
 }
 
@@ -676,13 +605,7 @@ async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
 
   const configuredDir = expandHome(manager.dir);
   const sciDir = resolve(configuredDir, '.sci');
-
-  // Propagate unblock-guide.md
-  const changed = propagateGuide(configuredDir, 'unblock-guide.md');
-
-  // Set manager status
   const statusPath = resolve(sciDir, 'status-line');
-  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
 
   const targetPane = `${manager.session}:${manager.window}.0`;
   const detected = await detectAgent(manager.session, manager.window);
@@ -697,7 +620,7 @@ async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
   }
   const targetDir = expandHome(targetWorker.dir);
 
-  const changeNotice = changed ? ` IMPORTANT: your own unblock-guide at ${configuredDir}/.sci/unblock-guide.md has just been updated with new instructions; please read it carefully.` : '';
+  const changeNotice = guideWouldChange(configuredDir, 'unblock-guide.md') ? ` IMPORTANT: your own unblock-guide at ${configuredDir}/.sci/unblock-guide.md has just been updated with new instructions; please read it carefully.` : '';
   const unblockMessage = `Please triage the blocker reported by ${targetWorkerId}. Change your directory to the worker's project directory ${targetDir} and inspect that worker's ${targetDir}/.sci/task.md there, where you should also write your triage feedback. Follow the instructions in YOUR OWN unblock-guide at ${configuredDir}/.sci/unblock-guide.md, and set YOUR OWN status-line at ${configuredDir}/.sci/status-line (NOT the worker's).${changeNotice}`;
 
   let tui: any = null;
@@ -714,7 +637,7 @@ async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
 
   console.log(`${manager.id}: waiting for empty prompt (up to 5s)...`);
   if (!await tui.ensurePromptIsEmpty()) {
-    console.error(`${manager.id}: never reached empty prompt`);
+    console.error(`${manager.id}: never reached empty prompt — no changes made; safe to retry.`);
     process.exit(1);
   }
 
@@ -723,6 +646,9 @@ async function doUnblock(manager: WorkerConfig, targetWorkerId: string) {
   await sleep(500);
   await tmux.sendKeys(targetPane, 'Enter', false);
 
+  // Send succeeded — now commit manager state.
+  propagateGuide(configuredDir, 'unblock-guide.md');
+  writeFileSync(statusPath, `REVIEWING: ${targetWorkerId}\n`, 'utf8');
   console.log(`${manager.id}: unblock request sent for ${targetWorkerId}.`);
 }
 
