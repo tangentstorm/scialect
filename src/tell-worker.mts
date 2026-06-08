@@ -426,6 +426,17 @@ async function doAdjust(w: WorkerConfig, dir: string, target: string) {
   const configuredDir = expandHome(dir);
   const statusPath = resolve(configuredDir, '.sci', 'status-line');
 
+  // The worker can only adjust against feedback the manager wrote to its
+  // .sci/review.md (the single canonical location — see approve-task-guide.md /
+  // adjust-guide.md). If it is missing, the manager skipped writing feedback;
+  // refuse here rather than telling the worker to "adjust" with nothing to act
+  // on. No state change — safe to retry once the manager writes review.md.
+  const reviewPath = resolve(configuredDir, '.sci', 'review.md');
+  if (!existsSync(reviewPath)) {
+    console.error(`${w.id}: no .sci/review.md — the manager must write adjustment feedback there before 'adjust'. No changes made.`);
+    process.exit(1);
+  }
+
   await sendHandoffThenCommit(w, target, {
     guide: 'adjust-guide.md',
     configuredDir,

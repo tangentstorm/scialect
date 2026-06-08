@@ -20,11 +20,26 @@ Your goal is to inspect the worker's proposed next commit-sized step in `task.md
 ---
 
 ## 3. Decision & Status Reporting
-Once your plan review is complete, write a brief comment (in the worker's `.sci/task.md` or in your chat response) and set **your own** status-line — i.e. the `status-line` file in **your own** manager `.sci/` directory, NOT the worker's `.sci/status-line` — to exactly one of the following. (Use an absolute path to your own `.sci/status-line` so the `cd` into the worker's directory does not redirect the write.)
+Once your plan review is complete, set **your own** status-line — i.e. the `status-line` file in **your own** manager `.sci/` directory, NOT the worker's `.sci/status-line` — to exactly one of the following. (Use an absolute path to your own `.sci/status-line` so the `cd` into the worker's directory does not redirect the write.)
+
+> **CRITICAL — where adjustment feedback must go.** If you choose `ADJUST`, you
+> **must first write your specific feedback to the worker's `.sci/review.md`**
+> (an absolute path into the *worker's* `.sci/`, e.g.
+> `/Users/.../<worker>/.sci/review.md`) BEFORE setting your status-line.
+> `.sci/review.md` is the **single canonical location** for your feedback and the
+> only place the worker is told to look (`adjust-guide.md` reads `.sci/review.md`).
+> - Do **NOT** write feedback to the top of (or anywhere in) the worker's
+>   `.sci/task.md` — that file is the worker's own ledger; editing it corrupts
+>   their planning state.
+> - Do **NOT** leave the feedback only in your chat/transcript — it is invisible
+>   to the worker, which will then be told to "adjust" with nothing to adjust against.
+> - Do **NOT** overwrite the worker's `.sci/result.md` (reserved for worker output).
+> Write `review.md`, nothing else of the worker's.
 
 *   **`REVIEWED: ACCEPT [worker]`**
     *   *When*: The plan is precise, correctly scoped, and aligns with `plan.md`.
     *   *Action*: Signals the orchestrator to approve the plan, notify the worker to start coding (`tell-worker assigned`), and reset you to `IDLE`.
 *   **`REVIEWED: ADJUST [worker]`**
     *   *When*: The plan is too broad, skips intermediate stubs, or is misaligned with `plan.md`.
-    *   *Action*: Signals the orchestrator to notify the worker to rewrite their task plan (`tell-worker adjust`) with your specific feedback, and reset you to `IDLE`.
+    *   *Required first*: Write your specific, actionable feedback to the worker's `.sci/review.md` (see the CRITICAL note above). State exactly what is wrong (e.g. "task.md and plan.md disagree: task.md is a Chapter-06 blueprint pass, plan.md is the old Periods proving campaign — reconcile them") and what the adjusted plan should look like.
+    *   *Action*: Signals the orchestrator to notify the worker to rewrite their task plan (`tell-worker adjust`) with the feedback you wrote to `review.md`, and reset you to `IDLE`.
