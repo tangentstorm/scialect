@@ -3,46 +3,34 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TypeScript API for driving Claude Code cloud sessions in a persistent Playwright browser.",
+  "description": "Swarm orchestration for Lean formalization/informalization work, built on tangentswarm (tmux, agents, cloud sessions) via MCP.",
   "engines": {
     "node": ">=20"
   },
-  "bin": {
-    "scialect": "dist/cli.mjs"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "demo": "tsx src/cli.mts",
-    "demo:list": "tsx src/cli.mts list",
-    "demo:open": "tsx src/cli.mts open",
-    "demo:status": "tsx src/cli.mts status",
-    "dev": "vite",
-    "cloud": "vite --config vite.cloud.config.mts",
-    "server": "tsx src/server.mts",
-    "client": "tsx src/client.mts",
-    "browse-sorries": "tsx src/browse-sorries.mts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json",
+    "test": "tsx --test test/*.test.mts",
+    "setup:swarm": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+    "check:swarm": "tsx src/check-swarm.mts",
     "local-status": "tsx src/local-status.mts",
-    "for-all": "tsx src/for-all.mts",
-    "check-up-to-date": "bin/check-up-to-date",
-    "check-rule-deps": "tsx src/check-rule-deps.mts",
-    "gh-status": "tsx src/gh-status.mts",
     "tell-worker": "tsx src/tell-worker.mts",
     "local-step": "tsx src/local-step.mts",
+    "for-all": "tsx src/for-all.mts",
+    "client": "tsx src/client.mts",
+    "browse-sorries": "tsx src/browse-sorries.mts",
     "sync-assignees": "tsx src/sync-assignees.mts",
-    "mcp": "tsx src/mcp-server.mts",
-    "install:browser": "playwright install chromium"
+    "gh-status": "tsx src/gh-status.mts",
+    "check-up-to-date": "bin/check-up-to-date",
+    "check-rule-deps": "tsx src/check-rule-deps.mts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "kvm": "file:../platform/kvm",
-    "playwright": "^1.49.0",
-    "ws": "^8.18.0"
+    "kvm": "file:../platform/kvm"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/ws": "^8.5.13",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vite": "^8.0.13"
+    "typescript": "^5.6.0"
   }
 }

@@ -1,193 +1,120 @@
 #!/usr/bin/env node
+/**
+ * REPL for Claude Code cloud sessions, via tangentswarm's cloud_* MCP tools.
+ *
+ * Needs `swarm cloud serve` (tangentswarm's browser + websocket hub) running
+ * wherever the configured swarm-mcp runs. SCIALECT_USE=<session name> preselects
+ * a chat (browse-sorries uses this).
+ */
 import * as readline from 'node:readline';
-import { randomUUID } from 'node:crypto';
-import {
-  DEFAULT_PORT,
-  type ClientRequest,
-  type ServerFrame,
-  type ServerReply,
-} from './protocol.mts';
+import { SwarmClient, type ChatRef } from './tangentswarm.mts';
 
-const url = process.env['SCIALECT_URL'] ?? `ws://127.0.0.1:${DEFAULT_PORT}/ws`;
+export const HELP = [
+  '  /list                 list every chat (* = active)',
+  '  /use <name>           switch active chat',
+  '  /status [name]        status of the active chat (or a named one)',
+  '  /latest               latest message in the active chat',
+  '  /wait [seconds]       wait for the active chat to settle, then print the reply',
+  '  /quit                 disconnect',
+  '  <anything else>       send as a message to the active chat',
+].join('\n');
 
-const ws = new WebSocket(url);
-const pending = new Map<string, (r: ServerReply) => void>();
-
-ws.addEventListener('open', () => {
-  console.log(`[scialect] connected to ${url}`);
-  startRepl();
-});
-
-ws.addEventListener('close', () => {
-  console.log('\n[scialect] disconnected');
-  process.exit(0);
-});
-
-ws.addEventListener('error', (e) => {
-  console.error('[scialect] ws error:', (e as ErrorEvent).message ?? e);
-  process.exit(1);
-});
-
-ws.addEventListener('message', (ev) => {
-  let frame: ServerFrame;
-  try {
-    frame = JSON.parse(String(ev.data)) as ServerFrame;
-  } catch {
-    process.stderr.write(`\n[bad frame] ${String(ev.data)}\n`);
-    return;
-  }
-  if (frame.kind === 'event') {
-    handleEvent(frame);
-    return;
-  }
-  const cb = pending.get(frame.id);
-  if (cb) {
-    pending.delete(frame.id);
-    cb(frame);
-  }
-});
-
-function handleEvent(frame: Extract<ServerFrame, { kind: 'event' }>): void {
-  switch (frame.type) {
-    case 'hello':
-      console.log(`[server v${frame.serverVersion}]`);
-      break;
-    case 'chat-update':
-      process.stdout.write(`\n[update] ${frame.chat.id} → ${frame.chat.status ?? '?'}\n`);
-      rl?.prompt(true);
-      break;
-    case 'message':
-      // Don't echo our own outgoing message back to ourselves.
-      // (Server broadcasts to everyone including the sender; OK for now.)
-      break;
-  }
+/** Find a chat by exact id, else by unique prefix. */
+export function findChat(chats: ChatRef[], name: string): ChatRef | undefined {
+  return chats.find(c => c.id === name) ?? (() => {
+    const hits = chats.filter(c => c.id.startsWith(name));
+    return hits.length === 1 ? hits[0] : undefined;
+  })();
 }
 
-type RequestBody = { [K in ClientRequest as K['kind']]: Omit<K, 'id'> }[ClientRequest['kind']];
+async function main(): Promise<void> {
+  const swarm = await SwarmClient.connect();
+  console.log(`[scialect] connected to tangentswarm (${swarm.config.command.join(' ')})`);
+  let active: string | null = null;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const prompt = () => { rl.setPrompt(`${active ?? '(no chat)'} > `); rl.prompt(true); };
 
-function call<T extends ServerReply>(body: RequestBody): Promise<T> {
-  const id = randomUUID();
-  const full = { ...body, id } as ClientRequest;
-  return new Promise<T>((resolve) => {
-    pending.set(id, (r) => resolve(r as T));
-    ws.send(JSON.stringify(full));
-  });
-}
+  const use = async (name: string) => {
+    const { sessions } = await swarm.cloudListSessions();
+    const hit = findChat(sessions, name);
+    if (!hit) { console.log(`[err] no chat named ${JSON.stringify(name)}`); return; }
+    active = hit.id;
+    console.log(`-> ${hit.label}`);
+  };
 
-let rl: readline.Interface | undefined;
-let activeLabel = '(no chat)';
+  console.log('commands: /list  /use <name>  /status [name]  /latest  /wait  /help  /quit');
+  const initial = process.env['SCIALECT_USE'];
+  if (initial) await use(initial).catch(e => console.log(`[err] ${(e as Error).message}`));
+  prompt();
 
-function setPrompt(): void {
-  rl?.setPrompt(`${activeLabel} > `);
-  rl?.prompt(true);
-}
-
-async function autoUse(name: string): Promise<void> {
-  const r = await call<ServerReply>({ kind: 'use', chatId: name });
-  if (r.kind === 'use') {
-    activeLabel = r.active.label;
-    console.log(`-> ${r.active.label}`);
-  } else {
-    console.log(`[err] ${stringify(r)}`);
-  }
-}
-
-function startRepl(): void {
-  rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  console.log('commands: /list  /use <name>  /status [name]  /latest  /help  /quit');
-  const initialUse = process.env['SCIALECT_USE'];
-  if (initialUse) {
-    autoUse(initialUse).finally(() => setPrompt());
-  } else {
-    setPrompt();
-  }
+  let closing = false;
+  const quit = async () => {
+    if (closing) return;
+    closing = true;
+    rl.close();
+    await swarm.close();
+    console.log('\n[scialect] disconnected');
+    process.exit(0);
+  };
 
   rl.on('line', async (raw) => {
     const line = raw.trim();
-    if (!line) return setPrompt();
-
+    if (!line) return prompt();
     try {
       if (!line.startsWith('/')) {
-        const r = await call<ServerReply>({ kind: 'send', text: line });
-        if (r.kind === 'error') console.log(`[err] ${r.message}`);
-        return setPrompt();
+        if (!active) console.log('[err] no active chat; /use <name> first');
+        else { await swarm.cloudSendMessage(active, line); console.log('(sent; /wait for the reply)'); }
+        return prompt();
       }
-
       const [cmd, ...rest] = line.slice(1).split(/\s+/);
       const arg = rest.join(' ');
-
       switch (cmd) {
         case 'list': {
-          const r = await call<ServerReply>({ kind: 'list' });
-          if (r.kind !== 'list') {
-            console.log(`[err] ${stringify(r)}`);
-            break;
-          }
-          if (r.chats.length === 0) console.log('(no chats)');
-          for (const c of r.chats) {
-            const mark = c.id === r.active ? '*' : ' ';
-            console.log(`${mark} [${c.transport}/${c.status ?? '?'}] ${c.label}`);
-          }
+          const { sessions } = await swarm.cloudListSessions();
+          if (sessions.length === 0) console.log('(no chats)');
+          for (const c of sessions) console.log(`${c.id === active ? '*' : ' '} [${c.transport}/${c.status ?? '?'}] ${c.label}`);
           break;
         }
-        case 'use': {
-          if (!arg) {
-            console.log('usage: /use <chat name>');
-            break;
-          }
-          const r = await call<ServerReply>({ kind: 'use', chatId: arg });
-          if (r.kind !== 'use') {
-            console.log(`[err] ${stringify(r)}`);
-            break;
-          }
-          activeLabel = r.active.label;
-          console.log(`-> ${r.active.label}`);
+        case 'use':
+          if (!arg) console.log('usage: /use <chat name>'); else await use(arg);
           break;
-        }
         case 'status': {
-          const r = await call<ServerReply>(
-            arg ? { kind: 'status', chatId: arg } : { kind: 'status' },
-          );
-          if (r.kind !== 'status') {
-            console.log(`[err] ${stringify(r)}`);
-            break;
-          }
-          console.log(`${r.chat.id}: ${r.chat.status ?? '?'}`);
+          const name = arg || active;
+          if (!name) { console.log('[err] no active chat'); break; }
+          const hit = findChat((await swarm.cloudListSessions()).sessions, name);
+          console.log(hit ? `${hit.id}: ${hit.status ?? '?'}` : `[err] no chat named ${JSON.stringify(name)}`);
           break;
         }
-        case 'latest': {
-          const r = await call<ServerReply>({ kind: 'latest' });
-          if (r.kind !== 'latest') {
-            console.log(`[err] ${stringify(r)}`);
-            break;
-          }
-          console.log(r.text ?? '(no message yet)');
+        case 'latest':
+          if (!active) console.log('[err] no active chat');
+          else console.log((await swarm.cloudGetLatestResponse(active)) ?? '(no message yet)');
+          break;
+        case 'wait': {
+          if (!active) { console.log('[err] no active chat'); break; }
+          const r = await swarm.cloudWaitForResponse(active, undefined, Number(arg) || 120);
+          console.log(`[${r.status}${r.settled ? '' : ', timed out'}] ${r.text ?? '(no message yet)'}`);
           break;
         }
         case 'help':
-          console.log('  /list                 list every chat');
-          console.log('  /use <name>           switch active chat');
-          console.log('  /status [name]        active chat status (or named)');
-          console.log('  /latest               latest assistant reply in active chat');
-          console.log('  /quit                 disconnect');
-          console.log('  <anything else>       send as a message to active chat');
+          console.log(HELP);
           break;
         case 'quit':
         case 'exit':
-          ws.close();
-          return;
+          return quit();
         default:
           console.log(`unknown command: /${cmd}`);
       }
     } catch (e) {
       console.error('[err]', (e as Error).message);
     }
-    setPrompt();
+    prompt();
   });
-
-  rl.on('close', () => ws.close());
+  rl.on('close', () => { void quit(); });
 }
 
-function stringify(r: ServerReply): string {
-  return r.kind === 'error' ? r.message : JSON.stringify(r);
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => {
+    console.error((err as Error).message ?? err);
+    process.exit(1);
+  });
 }

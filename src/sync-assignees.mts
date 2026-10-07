@@ -1,14 +1,7 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import {
-  DEFAULT_PORT,
-  type ChatRef,
-  type ClientRequest,
-  type ServerFrame,
-  type ServerReply,
-} from './protocol.mts';
+import { withSwarm, type ChatRef } from './tangentswarm.mts';
 
 type Config = { gitRepo: string; claudeEnv: string; sorriesDb: string };
 
@@ -18,31 +11,8 @@ function expandHome(p: string): string {
   return p;
 }
 
-async function fetchSessions(url: string): Promise<ChatRef[]> {
-  const ws = new WebSocket(url);
-  const pending = new Map<string, (r: ServerReply) => void>();
-
-  await new Promise<void>((res, rej) => {
-    ws.addEventListener('open', () => res(), { once: true });
-    ws.addEventListener('error', () => rej(new Error(`ws error connecting to ${url}`)), { once: true });
-  });
-
-  ws.addEventListener('message', (ev) => {
-    let frame: ServerFrame;
-    try { frame = JSON.parse(String(ev.data)) as ServerFrame; } catch { return; }
-    if (frame.kind === 'event') return;
-    const cb = pending.get(frame.id);
-    if (cb) { pending.delete(frame.id); cb(frame); }
-  });
-
-  const id = randomUUID();
-  const reply = await new Promise<ServerReply>((res) => {
-    pending.set(id, res);
-    ws.send(JSON.stringify({ id, kind: 'list' } satisfies ClientRequest));
-  });
-  ws.close();
-  if (reply.kind !== 'list') throw new Error(`unexpected reply: ${JSON.stringify(reply)}`);
-  return reply.chats;
+async function fetchSessions(): Promise<ChatRef[]> {
+  return withSwarm(async (swarm) => (await swarm.cloudListSessions()).sessions);
 }
 
 function leadingId(name: string): number | null {
@@ -54,10 +24,8 @@ async function main(): Promise<void> {
   const configPath = resolve(globalThis.process.cwd(), 'config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as Config;
   const dbPath = expandHome(config.sorriesDb);
-  const url = globalThis.process.env['SCIALECT_URL'] ?? `ws://127.0.0.1:${DEFAULT_PORT}/ws`;
-
-  console.log(`[sync-assignees] fetching session list from ${url} ...`);
-  const chats = await fetchSessions(url);
+  console.log('[sync-assignees] fetching session list from tangentswarm (cloud_list_sessions) ...');
+  const chats = await fetchSessions();
 
   const slugById = new Map<number, string>();
   let withoutId = 0;
