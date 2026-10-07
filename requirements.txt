@@ -1,0 +1,5 @@
+# Python side of scialect: tangentswarm provides swarm-mcp (tmux, coding agents,
+# state-machine handoffs, Claude Code cloud sessions) and the `swarm` CLI.
+# Pinned to the mcp-server branch until tangentstorm/tangentswarm#1 is merged;
+# then switch to @main (or a release tag).
+tangentswarm[cloud] @ git+https://github.com/tangentstorm/tangentswarm.git@mcp-server

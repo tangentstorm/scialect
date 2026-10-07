@@ -10,3 +10,4 @@ scialect.json
 *~
 workers.jsonl
 .sci/
+.venv/
