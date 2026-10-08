@@ -6,6 +6,20 @@ import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { getLiveSwarmRows, printSwarmTable } from './local-status.mts';
+import { SwarmClient } from './tangentswarm.mts';
+import { tellWorker } from './tell-worker.mts';
+
+// One tangentswarm MCP connection for the whole step (status + handoff).
+let swarm: SwarmClient | null = null;
+async function getSwarm(): Promise<SwarmClient> {
+  swarm ??= await SwarmClient.connect();
+  return swarm;
+}
+
+async function runTellWorker(worker: string, verb: string, arg?: string): Promise<void> {
+  const ok = await tellWorker(await getSwarm(), worker, verb, arg);
+  if (!ok) console.error(`tell-worker ${worker} ${verb} failed`);
+}
 
 interface WorkerConfig {
   id: string;
@@ -50,7 +64,7 @@ interface ActionProposal {
 
 async function main() {
   console.log('\n=== CURRENT SWARM STATUS ===');
-  const rows = await getLiveSwarmRows();
+  const rows = await getLiveSwarmRows(await getSwarm());
   printSwarmTable(rows);
   console.log('============================\n');
 
@@ -85,10 +99,7 @@ async function main() {
               console.log(`Resetting manager status to IDLE...`);
               writeStatus(mgr.dir, 'IDLE: ...');
               console.log(`Running tell-worker plan-approved for ${targetId}...`);
-              const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'plan-approved'], { stdio: 'inherit' });
-              if (res.status !== 0) {
-                console.error(`Command failed with exit code ${res.status}`);
-              }
+              await runTellWorker(targetId, 'plan-approved');
             }
           });
         } else {
@@ -98,10 +109,7 @@ async function main() {
               console.log(`Resetting manager status to IDLE...`);
               writeStatus(mgr.dir, 'IDLE: ...');
               console.log(`Running tell-worker accept for ${targetId}...`);
-              const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'accept'], { stdio: 'inherit' });
-              if (res.status !== 0) {
-                console.error(`Command failed with exit code ${res.status}`);
-              }
+              await runTellWorker(targetId, 'accept');
             }
           });
         }
@@ -112,10 +120,7 @@ async function main() {
             console.log(`Resetting manager status to IDLE...`);
             writeStatus(mgr.dir, 'IDLE: ...');
             console.log(`Running tell-worker rebase for ${targetId}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'rebase', 'origin/main'], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker(targetId, 'rebase', 'origin/main');
           }
         });
       } else if (decision === 'ADJUST') {
@@ -125,10 +130,7 @@ async function main() {
             console.log(`Resetting manager status to IDLE...`);
             writeStatus(mgr.dir, 'IDLE: ...');
             console.log(`Running tell-worker adjust for ${targetId}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'adjust'], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker(targetId, 'adjust');
           }
         });
       } else if (decision === 'REJECT') {
@@ -138,10 +140,7 @@ async function main() {
             console.log(`Resetting manager status to IDLE...`);
             writeStatus(mgr.dir, 'IDLE: ...');
             console.log(`Running tell-worker reject for ${targetId}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'reject'], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker(targetId, 'reject');
           }
         });
       } else if (decision === 'UNBLOCKED') {
@@ -151,10 +150,7 @@ async function main() {
             console.log(`Resetting manager status to IDLE...`);
             writeStatus(mgr.dir, 'IDLE: ...');
             console.log(`Running tell-worker unblocked for ${targetId}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', targetId, 'unblocked'], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker(targetId, 'unblocked');
           }
         });
       }
@@ -176,10 +172,7 @@ async function main() {
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
             // tell-worker will check if manager is IDLE and set it to REVIEWING
             console.log(`Running tell-worker review for ${w.id}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', 'mgr', 'review', w.id], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker('mgr', 'review', w.id);
           }
         });
       } else if (wStatus.toUpperCase().startsWith('SUGGEST')) {
@@ -191,10 +184,7 @@ async function main() {
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
             // tell-worker will check if manager is IDLE and set it to REVIEWING
             console.log(`Running tell-worker approve-task for ${w.id}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', 'mgr', 'approve-task', w.id], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker('mgr', 'approve-task', w.id);
           }
         });
       } else if (wStatus.toUpperCase().startsWith('BLOCKED')) {
@@ -206,10 +196,7 @@ async function main() {
             console.log(`Setting manager status to REVIEWING: ${w.id}...`);
             // tell-worker will check if manager is IDLE and set it to REVIEWING
             console.log(`Running tell-worker unblock for ${w.id}...`);
-            const res = spawnSync('npm', ['run', 'tell-worker', '--', 'mgr', 'unblock', w.id], { stdio: 'inherit' });
-            if (res.status !== 0) {
-              console.error(`Command failed with exit code ${res.status}`);
-            }
+            await runTellWorker('mgr', 'unblock', w.id);
           }
         });
       } else if (wStatus.toUpperCase().startsWith('PR-AWAIT')) {
@@ -256,10 +243,7 @@ async function main() {
         description: `[Integrate] Integration pipeline is empty. Start rebasing ${nextW.id} onto origin/main.`,
         execute: async () => {
           console.log(`Starting rebase sequence for ${nextW.id}...`);
-          const res = spawnSync('npm', ['run', 'tell-worker', '--', nextW.id, 'rebase', 'origin/main'], { stdio: 'inherit' });
-          if (res.status !== 0) {
-            console.error(`Command failed with exit code ${res.status}`);
-          }
+          await runTellWorker(nextW.id, 'rebase', 'origin/main');
         }
       });
     }
@@ -343,7 +327,10 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(async () => { await swarm?.close(); })
+  .catch(async err => {
+    console.error(err);
+    await swarm?.close().catch(() => {});
+    process.exit(1);
+  });

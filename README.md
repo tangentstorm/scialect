@@ -31,6 +31,54 @@ In short:
 State is exchanged through plain files in each worker's repo (`.sci/status-line`,
 `goal.md`, `task.md`), so the workers themselves can be any coding agent.
 
+## Installation
+
+scialect is a Node (>= 20) project; the swarm machinery underneath it — tmux
+control, coding-agent prompt handling, the tell-worker handoffs, status
+collection and the claude.ai/code browser — lives in the Python package
+[tangentswarm](https://github.com/tangentstorm/tangentswarm), which scialect
+drives over MCP.
+
+```sh
+npm install                  # needs ../platform/kvm (tangentcode/platform) for browse-sorries
+npm run setup:swarm          # python3 -m venv .venv && pip install -r requirements.txt
+npm run check:swarm          # verify scialect can reach swarm-mcp
+```
+
+`requirements.txt` pins tangentswarm to its `mcp-server` branch until
+[tangentswarm#1](https://github.com/tangentstorm/tangentswarm/pull/1) is merged
+(then switch the pin to `@main` or a tag). Installing tangentswarm anywhere else
+works too, as long as `swarm-mcp` / `swarm` are on `PATH` or configured below.
+
+### Where the swarm runs
+
+scialect spawns tangentswarm's MCP server over stdio for every command. By
+default that is `<repo>/.venv/bin/swarm-mcp` (else `swarm-mcp` on `PATH`), i.e.
+the swarm on this machine. To drive a swarm on another host, point it at an SSH
+forced-command key that runs `swarm-mcp` there (see tangentswarm's README):
+
+```sh
+export SCIALECT_SWARM_MCP="ssh memnar-mcp"
+export SCIALECT_CONTROL_DIR=/home/memnar/ver/scialect   # control dir as seen by that host
+```
+
+or in `scialect.json`:
+
+```json
+{ "swarm": { "mcpCommand": ["ssh", "memnar-mcp"], "controlDir": "/home/memnar/ver/scialect" } }
+```
+
+| setting | env | scialect.json | default |
+| --- | --- | --- | --- |
+| MCP server command | `SCIALECT_SWARM_MCP` | `swarm.mcpCommand` | `.venv/bin/swarm-mcp`, else `swarm-mcp` |
+| control dir (workers.jsonl, rules/) | `SCIALECT_CONTROL_DIR` | `swarm.controlDir` | current directory |
+| `swarm` CLI (for-all) | `SCIALECT_SWARM_CLI` | `swarm.cli` | `.venv/bin/swarm`, else `swarm` |
+| show swarm-mcp's stderr | `SCIALECT_SWARM_DEBUG=1` | | off |
+
+The control dir is this repository's checkout (or wherever `workers.jsonl`
+lives): tangentswarm reads `workers.jsonl`, `known-agents.jsonl` and the
+git-committed `rules/*.md` guides from it.
+
 ## The orchestrator
 
 Handoffs are driven by two scripts:
@@ -56,122 +104,71 @@ npm run for-all -- ...     # run a command across all worker repos
 npm run gh-status          # PR / CI status across the swarm
 ```
 
-## Optional: Playwright cloud transport
+`tell-worker` and `local-status` call tangentswarm's `tell_worker` and
+`swarm_status` MCP tools; `local-step` reads the status lines, proposes the next
+transition, runs the handoff through `tell_worker`, and merges green PRs with
+`gh`. `for-all` runs `swarm -c for-all` (streamed output, so it runs locally).
+`local-step` and `for-all` read `workers.jsonl` and the workers' `.sci/` files
+from the local filesystem, so run them on the swarm host.
 
-In addition to local workers, scialect can drive Claude Code **cloud** sessions
-at [claude.ai/code](https://claude.ai/code) through a persistent Playwright
-browser. This is an optional component — the swarm protocol above does not
-require it — useful when some workers run in the cloud rather than locally.
+## Claude Code cloud sessions
 
-### Setup
-
-```sh
-npm install
-npx playwright install chromium
-```
-
-### Server + client
-
-Run the dev server in one terminal — it owns a persistent Playwright browser and
-brokers WebSocket clients, with hot-reload of the handler logic:
+scialect can also work with Claude Code **cloud** sessions at
+[claude.ai/code](https://claude.ai/code) (optional; the swarm protocol above
+doesn't need it). The Playwright browser, login and the websocket hub now live in
+tangentswarm; on the swarm host:
 
 ```sh
-npm run dev
+.venv/bin/playwright install chromium
+.venv/bin/swarm cloud login       # headed browser: sign in once (profile in ~/.local/share/tangentswarm)
+.venv/bin/swarm cloud serve       # browser + hub on ws://127.0.0.1:5002/ws
 ```
 
-This is a Vite dev server. The browser stays alive across handler edits; saves to
-`src/handlers.mts` or `src/sessions.mts` are picked up on the next ws message.
-Use `npm run server` for a plain non-HMR boot.
-
-The first time you start it, claude.ai will redirect to the login page in the
-Chromium window it opens. Sign in there. The login cookie is stored in
-`~/.scialect/profile` (override with `launchBrowser({ profileDir })`) and is
-preserved while the server runs. Subsequent restarts reuse the cookie as long as
-the server shuts down cleanly (Ctrl-C is fine — SIGKILL is not).
-
-In another terminal, connect with the REPL client:
+scialect then reaches the sessions through the `cloud_*` MCP tools:
 
 ```sh
-npm run client
+npm run client            # REPL: /list /use <name> /status [name] /latest /wait /help /quit
+npm run sync-assignees    # fill sorry assignees from session slugs
+npm run browse-sorries    # 'c' on a sorry opens its session in the REPL
 ```
 
-REPL commands:
+The hub's wire protocol is described in [docs/websocket-agent.md](docs/websocket-agent.md).
 
-```
-/list                 list every chat (* = your active one)
-/use <name>           switch active chat (use the full session name)
-/status [name]        status of active chat, or a named one
-/latest               latest assistant reply in active chat
-/help                 show this list
-/quit                 disconnect
-<anything else>       send as a message to active chat
-```
-
-Multiple clients can connect simultaneously; each has its own active-chat
-selection. Override the port with `SCIALECT_PORT`; override the client target
-with `SCIALECT_URL=ws://host:port`.
-
-### One-shot CLI (no server)
-
-For quick scripted use you can also drive a fresh browser per command:
-
-```sh
-npm run demo -- list                          # list every session in the sidebar
-npm run demo -- status "1469. Prove ..."      # status for one session
-npm run demo -- open    "1469. Prove ..."     # open it & print latest reply
-npm run demo -- wait                          # park the browser (for login)
-```
-
-Note: these spin up and tear down their own browser each invocation, so the
-session cookie may not persist between runs. Prefer the server for any sustained
-use.
-
-### Library
+## Library
 
 ```ts
-import {
-  launchBrowser,
-  gotoClaudeCode,
-  listSessions,
-  openSession,
-  sendMessage,
-  getLatestResponse,
-  getSessionStatus,
-} from 'scialect';
+import { withSwarm } from 'scialect';
 
-const { page, close } = await launchBrowser({ headed: true });
-await gotoClaudeCode(page);
-
-for (const s of await listSessions(page)) {
-  console.log(s.status, s.name);
-}
-
-await openSession(page, '1469. Prove skeletal homology quotient identity');
-await sendMessage(page, 'status?');
-console.log(await getLatestResponse(page));
-
-await close();
+await withSwarm(async (swarm) => {
+  for (const row of await swarm.swarmStatus()) console.log(row.id, row.state, row.status);
+  console.log(await swarm.capturePane('agents:1', 50));
+  await swarm.tellAgent('agents:1', 'please re-run lake build');
+  for (const s of (await swarm.cloudListSessions()).sessions) console.log(s.status, s.id);
+});
 ```
 
-Session status is classified as one of `running | awaiting | ci | ci-pass |
-ci-fail | idle | unknown`. The cloud UI exposes no stable test ids, so the
-classifier inspects each sidebar item's text, `aria-label`, and `title` against
-keyword regexes; when a session comes back `unknown`, inspect
-`SessionSummary.rawSignals` and tighten the regex in `src/sessions.mts`. The wire
-protocol lives in `src/protocol.mts` (JSON frames, request/reply correlated by
-`id`, server-pushed events use `kind: "event"`).
+`SwarmClient` wraps every tangentswarm tool scialect uses (tmux, agents,
+`tell_worker`/`swarm_status`, `cloud_*`); tool failures throw
+`SwarmToolError`.
+
+## Development
+
+```sh
+npm run typecheck
+npm test                  # unit tests + integration tests against the real swarm-mcp (skipped if not installed)
+```
 
 ## Layout
 
 - `src/local-step.mts` — orchestrator: advances the swarm one handoff at a time.
-- `src/tell-worker.mts` — sends a single state-change token to a worker/coordinator.
+- `src/tell-worker.mts` — one state-change handoff (via tangentswarm's `tell_worker`).
+- `src/local-status.mts`, `src/swarm-table.mts` — swarm status table (via `swarm_status`).
+- `src/for-all.mts` — run a command in every worker repo (via `swarm -c for-all`).
+- `src/gh-status.mts`, `bin/check-up-to-date` — PR / CI / branch status across the swarm.
+- `src/browse-sorries.mts`, `src/sync-assignees.mts` — the sorry database (Lean formalization tracking).
+- `src/check-rule-deps.mts`, `src/rule-deps.mts` — keep the `uses:` annotations in `rules/` honest.
+- `src/tangentswarm.mts` — MCP client for tangentswarm (`SwarmClient`, config).
+- `src/client.mts` — cloud-session REPL; `src/check-swarm.mts` — connectivity check.
 - `rules/` — version-controlled prompt guides copied into `.sci/` per transition.
 - `docs/state-machine.md` — the formal swarm state machine and protocol.
-- `src/local-status.mts`, `src/for-all.mts`, `src/gh-status.mts` — swarm status helpers.
-- `src/browser.mts` — persistent-context Playwright launcher (`launchBrowser`, `gotoClaudeCode`).
-- `src/sessions.mts` — sidebar reading + per-session actions for the cloud transport.
-- `src/protocol.mts` — ws wire protocol (request/reply + events).
-- `src/server.mts` — ws server that owns the Playwright browser.
-- `src/client.mts` — REPL client.
-- `src/cli.mts` — `list / status / open / wait` one-shot demo.
-- `src/index.mts` — public library re-exports.
+- `requirements.txt` — the tangentswarm pin.

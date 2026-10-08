@@ -1,19 +1,22 @@
 # scialect websocket protocol (agent reference)
 
 This document is the on-disk reference for any AI agent running on this
-machine that needs to drive scialect's websocket server. It is a protocol
+machine that needs to drive the cloud-session websocket server. It is a protocol
 manual, not a tutorial.
 
-The canonical schema lives in `src/protocol.mts`. If anything here disagrees
-with that file, the file wins.
+The server now lives in [tangentswarm](https://github.com/tangentstorm/tangentswarm)
+(`swarm cloud serve`), which kept this protocol unchanged; the canonical schema
+is `tangentswarm/cloud/protocol.py` and `tangentswarm/cloud/handlers.py`. If
+anything here disagrees with those files, the files win. scialect itself no
+longer speaks this protocol: it uses tangentswarm's `cloud_*` MCP tools.
 
 ## 1. Connection
 
 - Default endpoint: `ws://127.0.0.1:5002/ws`.
-- Override with `SCIALECT_URL=ws://host:port/path`.
-- The same endpoint is exposed by both the standalone server (`npm run server`)
-  and the Vite dev plugin (`npm run dev`); the latter hot-reloads
-  `src/handlers.mts` and `src/sessions.mts` but not the protocol surface.
+- Override with `TANGENTSWARM_CLOUD_URL` (or the old `SCIALECT_URL`) `=ws://host:port/path`.
+- The endpoint is served by `swarm cloud serve` (browser + hub), or by
+  `swarm cloud orchestrator` in front of `swarm cloud serve --port 5003`
+  (adds the `swarm` subscription and `swarm-status` pushes).
 - The server may need ~5–15 seconds to finish bringing up Playwright on first
   connect. The open handshake itself completes quickly; the first request
   may block until the headed Chromium has loaded `claude.ai/code`. Set
@@ -358,4 +361,4 @@ const list = await call<{ chats: { id: string }[] }>({ kind: "list" });
   fields (e.g. the recently added `ChatRef.slug`) are minor bumps; old
   clients that ignore unknown fields keep working.
 - There is no client→server version negotiation; assume the server is at
-  least as new as the schema in `src/protocol.mts` at your checkout.
+  least as new as the schema in tangentswarm's `cloud/protocol.py` at your checkout.

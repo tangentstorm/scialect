@@ -2,13 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import {
-  DEFAULT_PORT,
-  type ClientRequest,
-  type ServerFrame,
-  type ServerReply,
-} from './protocol.mts';
+import { withSwarm } from './tangentswarm.mts';
 import {
   CSCR,
   cursor,
@@ -327,34 +321,11 @@ function drawHelp(frame: VideoBuffer, width: number, height: number): void {
 }
 
 async function lookupSessionName(slug: string): Promise<string | null> {
-  const url = globalThis.process.env['SCIALECT_URL'] ?? `ws://127.0.0.1:${DEFAULT_PORT}/ws`;
-  const ws = new WebSocket(url);
-  const pending = new Map<string, (r: ServerReply) => void>();
-  try {
-    await new Promise<void>((res, rej) => {
-      ws.addEventListener('open', () => res(), { once: true });
-      ws.addEventListener('error', () => rej(new Error(`ws connect failed: ${url}`)), { once: true });
-    });
-    ws.addEventListener('message', (ev) => {
-      let frame: ServerFrame;
-      try { frame = JSON.parse(String(ev.data)) as ServerFrame; } catch { return; }
-      if (frame.kind === 'event') return;
-      const cb = pending.get(frame.id);
-      if (cb) { pending.delete(frame.id); cb(frame); }
-    });
-    const id = randomUUID();
-    const reply = await new Promise<ServerReply>((res) => {
-      pending.set(id, res);
-      ws.send(JSON.stringify({ id, kind: 'list' } satisfies ClientRequest));
-    });
-    if (reply.kind !== 'list') return null;
-    const bare = slug.startsWith('session_') ? slug.slice('session_'.length) : slug;
-    const full = slug.startsWith('session_') ? slug : `session_${slug}`;
-    const hit = reply.chats.find(c => c.slug === full || c.slug === bare);
-    return hit?.id ?? null;
-  } finally {
-    ws.close();
-  }
+  const { sessions } = await withSwarm(swarm => swarm.cloudListSessions());
+  const bare = slug.startsWith('session_') ? slug.slice('session_'.length) : slug;
+  const full = slug.startsWith('session_') ? slug : `session_${slug}`;
+  const hit = sessions.find(c => c.slug === full || c.slug === bare);
+  return hit?.id ?? null;
 }
 
 function runBrowser(configPath: string): void {

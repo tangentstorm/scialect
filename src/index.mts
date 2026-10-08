@@ -1,18 +1,24 @@
+/**
+ * scialect library surface.
+ *
+ * Swarm control (tmux, coding agents, state-machine handoffs) and Claude Code
+ * cloud sessions are provided by tangentswarm; this re-exports scialect's MCP
+ * client for it.
+ */
 export {
-  launchBrowser,
-  gotoClaudeCode,
-  CLAUDE_CODE_URL,
-  DEFAULT_PROFILE_DIR,
-  type LaunchOptions,
-  type BrowserHandle,
-} from './browser.mts';
+  SwarmClient,
+  SwarmToolError,
+  withSwarm,
+  loadSwarmConfig,
+  splitCommand,
+  type SwarmConfig,
+  type TmuxSession,
+  type TmuxPane,
+  type SwarmRow,
+  type AgentStatus,
+  type TellWorkerResult,
+  type ChatRef,
+  type CloudWaitResult,
+} from './tangentswarm.mts';
 
-export {
-  listSessions,
-  openSession,
-  sendMessage,
-  getLatestResponse,
-  getSessionStatus,
-  type SessionSummary,
-  type SessionStatus,
-} from './sessions.mts';
+export { formatSwarmTable, printSwarmTable } from './swarm-table.mts';
