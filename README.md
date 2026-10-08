@@ -148,7 +148,7 @@ await withSwarm(async (swarm) => {
 ```
 
 `SwarmClient` wraps every tangentswarm tool scialect uses (tmux, agents,
-`tell_worker`/`swarm_status`, `shell_exec`, `cloud_*`); tool failures throw
+`tell_worker`/`swarm_status`, `cloud_*`); tool failures throw
 `SwarmToolError`.
 
 ## Development

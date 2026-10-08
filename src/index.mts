@@ -14,7 +14,6 @@ export {
   type SwarmConfig,
   type TmuxSession,
   type TmuxPane,
-  type ShellResult,
   type SwarmRow,
   type AgentStatus,
   type TellWorkerResult,

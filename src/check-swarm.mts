@@ -6,7 +6,7 @@
 import { SwarmClient, loadSwarmConfig } from './tangentswarm.mts';
 
 export const REQUIRED_TOOLS = [
-  'list_sessions', 'list_panes', 'capture_pane', 'send_keys', 'shell_exec',
+  'list_sessions', 'list_panes', 'capture_pane', 'send_keys',
   'agent_status', 'pane_ready', 'wait_for_idle', 'tell_agent', 'swarm_status', 'tell_worker',
   'cloud_list_sessions', 'cloud_send_message', 'cloud_get_latest_response', 'cloud_wait_for_response',
 ];

@@ -33,11 +33,6 @@ export interface TmuxPane {
   width: number; height: number; pid: number; dead: boolean;
 }
 
-export interface ShellResult {
-  exit_code: number | null; stdout: string; stderr: string; timed_out: boolean;
-  duration_sec: number; stdout_truncated: boolean; stderr_truncated: boolean; cwd: string;
-}
-
 export interface SwarmRow { id: string; agent: string; state: string; health: string; status: string }
 
 export interface AgentStatus {
@@ -135,7 +130,7 @@ export class SwarmClient {
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
     const transport = new StdioClientTransport({ command, args, env, stderr: 'pipe' });
     const client = new Client({ name: 'scialect', version: '0.2.0' });
-    // swarm-mcp logs (e.g. the shell_exec audit line) go to stderr; keep them
+    // swarm-mcp logs go to stderr; keep them
     // off the terminal unless asked for.
     transport.stderr?.on('data', (chunk: Buffer) => {
       if (process.env['SCIALECT_SWARM_DEBUG']) process.stderr.write(chunk);
@@ -179,7 +174,6 @@ export class SwarmClient {
   async newWindow(session: string, name?: string, cwd?: string, command?: string): Promise<TmuxPane> {
     return this.call('new_window', { session, name, cwd, command });
   }
-  async shellExec(command: string, cwd?: string, timeout?: number): Promise<ShellResult> { return this.call('shell_exec', { command, cwd, timeout }); }
 
   // ---- agents
   async agentStatus(target: string): Promise<AgentStatus> { return this.call('agent_status', { target }); }

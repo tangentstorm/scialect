@@ -1,7 +1,7 @@
 /**
  * Talks to a real tangentswarm `swarm-mcp` over stdio (the configured command:
  * SCIALECT_SWARM_MCP, scialect.json, <repo>/.venv/bin/swarm-mcp, or PATH).
- * Skipped when none is installed. Read-only against tmux; shell_exec runs `echo`.
+ * Skipped when none is installed. Read-only against tmux.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ let control: string;
 before(async () => {
   if (skip) return;
   const state = mkdtempSync(join(tmpdir(), 'sci-state-'));
-  process.env['TANGENTSWARM_STATE_DIR'] = state;         // keep the shell_exec audit log out of ~
+  process.env['TANGENTSWARM_STATE_DIR'] = state;         // keep swarm-mcp state out of ~
   control = mkdtempSync(join(tmpdir(), 'sci-control-'));
   const wdir = join(control, 'w-jc0');
   mkdirSync(join(wdir, '.sci'), { recursive: true });
@@ -50,12 +50,6 @@ test('swarm_status reads workers.jsonl and the status line', { skip }, async () 
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.id, 'jc0');
   assert.match(rows[0]!.status, /proving lemma 3/);
-});
-
-test('shell_exec runs a command', { skip }, async () => {
-  const r = await swarm.shellExec('echo hi', '/tmp');
-  assert.equal(r.exit_code, 0);
-  assert.equal(r.stdout, 'hi\n');
 });
 
 test('tool errors surface as SwarmToolError', { skip }, async () => {

@@ -39,6 +39,6 @@ test('decodeToolResult parses JSON, passes plain text, throws on isError', () =>
   assert.deepEqual(decodeToolResult('t', { content: [{ type: 'text', text: '{"a": 1}' }] }), { a: 1 });
   assert.equal(decodeToolResult('t', { content: [{ type: 'text', text: 'plain $ ' }] }), 'plain $ ');
   assert.deepEqual(decodeToolResult('t', { content: [], structuredContent: { b: 2 } }), { b: 2 });
-  assert.throws(() => decodeToolResult('shell_exec', { isError: true, content: [{ type: 'text', text: 'insufficient_scope' }] }),
-    (e: unknown) => e instanceof SwarmToolError && /shell_exec: insufficient_scope/.test(e.message));
+  assert.throws(() => decodeToolResult('send_keys', { isError: true, content: [{ type: 'text', text: 'insufficient_scope' }] }),
+    (e: unknown) => e instanceof SwarmToolError && /send_keys: insufficient_scope/.test(e.message));
 });
