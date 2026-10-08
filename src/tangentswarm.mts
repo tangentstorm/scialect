@@ -170,9 +170,13 @@ export class SwarmClient {
   async sendKeys(target: string, text: string, opts: { enter?: boolean; literal?: boolean } = {}): Promise<void> {
     await this.call('send_keys', { target, text, enter: opts.enter ?? true, literal: opts.literal ?? true });
   }
-  async newSession(name: string, cwd?: string, command?: string): Promise<TmuxPane> { return this.call('new_session', { name, cwd, command }); }
-  async newWindow(session: string, name?: string, cwd?: string, command?: string): Promise<TmuxPane> {
-    return this.call('new_window', { session, name, cwd, command });
+  // swarm-mcp only starts registered agents (claude, muse, grok, gemini, codex) in a
+  // directory under its agent root (~/ver); there is no free command.
+  async listAgents(): Promise<{ agents: { name: string; installed: boolean; path: string | null; adapter: string }[]; cwd_root: string }> {
+    return this.call('list_agents');
+  }
+  async startAgent(agent: string, cwd: string, opts: { session?: string; windowName?: string } = {}): Promise<{ pane: TmuxPane }> {
+    return this.call('start_agent', { agent, cwd, session: opts.session, window_name: opts.windowName });
   }
 
   // ---- agents
